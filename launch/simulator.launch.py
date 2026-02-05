@@ -28,8 +28,12 @@ def generate_launch_description():
     )
 
     initialObjectState_arg = DeclareLaunchArgument(
-        '/simulator/initial_object_state', default_value=TextSubstitution(text='[100.0, 8.0, 0.0]'),
+        '/simulator/initial_object_state', default_value=TextSubstitution(text='[100.0, 8.0, -5.0]'),
         description = 'Initital object state as [x, vx, ax]'
+    )
+
+    useInternalController_arg = DeclareLaunchArgument(
+        '/simulator/use_internal_controller', default_value=TextSubstitution(text='true')
     )
 
     simulator = Node(
@@ -49,7 +53,8 @@ def generate_launch_description():
             '/simulator/initial_object_state': ParameterValue(
                 LaunchConfiguration('/simulator/initial_object_state'),
                 value_type = List[float]
-            )
+            ),
+            '/simulator/use_internal_controller': LaunchConfiguration('/simulator/use_internal_controller'),
         }]
     )
 
@@ -67,6 +72,7 @@ def generate_launch_description():
         objectDisappearTime_arg,
         initialEgoState_arg,
         initialObjectState_arg,
+        useInternalController_arg,
         simulator,
         tf_broadcaster
     ])
