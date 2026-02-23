@@ -238,6 +238,9 @@ void crp::apl::Simulator::mapScenario()
         objectClassification.label = oncomingObjects.at(i).type;
         object.classification.push_back(objectClassification);
 
+        object.kinematics.initial_twist_with_covariance.twist.linear.x = oncomingObjects.at(i).vx;
+        object.kinematics.initial_acceleration_with_covariance.accel.linear.x = oncomingObjects.at(i).ax;
+
         m_scenarioMsg.local_moving_objects.objects.push_back(object);
     }
 
@@ -262,6 +265,9 @@ void crp::apl::Simulator::mapScenario()
         autoware_perception_msgs::msg::ObjectClassification objectClassification;
         objectClassification.label = followedObjects.at(i).type;
         object.classification.push_back(objectClassification);
+
+        object.kinematics.initial_twist_with_covariance.twist.linear.x = followedObjects.at(i).vx;
+        object.kinematics.initial_acceleration_with_covariance.accel.linear.x = followedObjects.at(i).ax;
 
         m_scenarioMsg.local_moving_objects.objects.push_back(object);
     }
