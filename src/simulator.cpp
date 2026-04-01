@@ -37,6 +37,10 @@ void crp::apl::Simulator::vehicleModel()
     m_axEgo = vehicleLongController();
     m_vxEgo = m_vxEgo + dT*m_axEgo;
 
+    if (m_vxEgo < 1e-6){
+        m_vxEgo = 0.0f;
+    }
+
     m_yawRate = std::tan(m_targetSteeringAngle)/p_axleDistance*m_vxEgo;
     m_thetaEgo = m_thetaEgo + m_yawRate*dT;
 
@@ -48,13 +52,19 @@ void crp::apl::Simulator::vehicleModel()
 
 double crp::apl::Simulator::vehicleLongController()
 {
-    double error = m_vehicleSpeedTarget - m_vxEgo;
-    m_errorIntegral = m_errorIntegral + dT*error;
+    if (m_vehicleSpeedTarget < 1e-6)
+    {
+        return (-9.81f);
+    }
+    else{
+        double error = m_vehicleSpeedTarget - m_vxEgo;
+        m_errorIntegral = m_errorIntegral + dT*error;
 
-    double P = 1.0;
-    double I = 0.1;
+        double P = 1.0;
+        double I = 0.1;
 
-    return (P*error + I*m_errorIntegral);
+        return (P*error + I*m_errorIntegral);
+    }
 }
 
 void crp::apl::Simulator::vehicleLatController()
@@ -72,6 +82,10 @@ void crp::apl::Simulator::vehicleLatController()
             if(std::sqrt(std::pow(pathPoint.point.pose.position.x, 2)+std::pow(pathPoint.point.pose.position.y, 2)) > (p_lookAheadTime*m_vxEgo))
             {
                 if (std::abs(pathPoint.point.pose.position.y) < 0.01)
+                {
+                    m_targetSteeringAngle = 0.0;
+                }
+                else if (m_vxEgo <= 0.1f)
                 {
                     m_targetSteeringAngle = 0.0;
                 }
@@ -325,7 +339,11 @@ void crp::apl::Simulator::generateFollowedObject()
             for (int i=0; i<followedObjects.size(); i++)
             {
                 followedObjects.at(i).vx = followedObjects.at(i).vx + followedObjects.at(i).ax*dT;
-                if (followedObjects.at(i).vx <=0){
+                if (followedObjects.at(i).vx <=0 && initialFollowedObject.vx >= 0.0f){
+                    followedObjects.at(i).vx = 0.0f;
+                    followedObjects.at(i).ax = 0.0f;
+                }
+                else if (followedObjects.at(i).vx >=0 && initialFollowedObject.vx <= 0.0f){
                     followedObjects.at(i).vx = 0.0f;
                     followedObjects.at(i).ax = 0.0f;
                 }

@@ -19,7 +19,7 @@ def generate_launch_description():
     )
 
     objectDisappearTime_arg = DeclareLaunchArgument(
-        '/simulator/object_disappear_time', default_value=TextSubstitution(text='12.0')
+        '/simulator/object_disappear_time', default_value=TextSubstitution(text='10000.0')
     )
     
     initialEgoState_arg = DeclareLaunchArgument(
@@ -28,7 +28,7 @@ def generate_launch_description():
     )
 
     initialObjectState_arg = DeclareLaunchArgument(
-        '/simulator/initial_object_state', default_value=TextSubstitution(text='[100.0, 8.0, -5.0]'),
+        '/simulator/initial_object_state', default_value=TextSubstitution(text='[100.0, 5.0, 0.0]'),
         description = 'Initital object state as [x, vx, ax]'
     )
 
