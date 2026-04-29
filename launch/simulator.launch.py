@@ -28,7 +28,7 @@ def generate_launch_description():
     )
 
     initialObjectState_arg = DeclareLaunchArgument(
-        '/simulator/initial_object_state', default_value=TextSubstitution(text='[100.0, 5.0, 0.0]'),
+        '/simulator/initial_object_state', default_value=TextSubstitution(text='[100.0, 0.0, 0.0]'),
         description = 'Initital object state as [x, vx, ax]'
     )
 

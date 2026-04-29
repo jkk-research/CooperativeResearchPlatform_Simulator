@@ -34,13 +34,13 @@ void crp::apl::Simulator::ctrlCmdCallback(const autoware_control_msgs::msg::Cont
 
 void crp::apl::Simulator::vehicleModel()
 {
-    m_axEgo = vehicleLongController();
-    m_vxEgo = m_vxEgo + dT*m_axEgo;
+    m_axEgo = std::min(std::max(-9.81, vehicleLongController()), 9.81);
+    m_vxEgo = std::max(0.0, m_vxEgo + dT*m_axEgo);
 
-    if (m_vxEgo < 1e-6){
-        m_vxEgo = 0.0f;
+    if (m_vxEgo <= 1e-3)
+    {
+        m_axEgo = 0.0;
     }
-
     m_yawRate = std::tan(m_targetSteeringAngle)/p_axleDistance*m_vxEgo;
     m_thetaEgo = m_thetaEgo + m_yawRate*dT;
 
@@ -60,7 +60,7 @@ double crp::apl::Simulator::vehicleLongController()
         double error = m_vehicleSpeedTarget - m_vxEgo;
         m_errorIntegral = m_errorIntegral + dT*error;
 
-        double P = 1.0;
+        double P = 3.0;
         double I = 0.1;
 
         return (P*error + I*m_errorIntegral);
