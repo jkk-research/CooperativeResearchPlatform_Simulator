@@ -11,10 +11,12 @@ crp::apl::Simulator::Simulator() : Node("simulator")
 
     this->declare_parameter<std::vector<double>>("/simulator/initial_ego_state", {0.0, 10.0, 0.0}); // in m/s
     this->declare_parameter<std::vector<double>>("/simulator/initial_object_state", {100.0, 8.0, -5.0}); // in m/s
+    this->declare_parameter<int>("/simulator/numberOfFollowedObjects", 0);
+    this->declare_parameter<int>("/simulator/numberOfOncomingObjects", 0);
     this->declare_parameter("/simulator/use_internal_controller", true); 
     this->declare_parameter("/simulator/object_disappear_time", 12.0); 
 
-    m_timer_ = this->create_wall_timer(std::chrono::milliseconds(20), std::bind(&Simulator::run, this));
+    m_timer_ = this->create_wall_timer(std::chrono::milliseconds(50), std::bind(&Simulator::run, this));
 
     RCLCPP_INFO(this->get_logger(), "simulator has been started");
 }
@@ -285,6 +287,59 @@ void crp::apl::Simulator::mapScenario()
 
         m_scenarioMsg.local_moving_objects.objects.push_back(object);
     }
+
+    // pedestrians
+    for (long unsigned int i = 0; i<pedestrians.size(); i++)
+    {
+        // loop through the objects and transform them into the local frame
+        // write it to the scenario message
+        double global_x = pedestrians.at(i).x;
+        double global_y = pedestrians.at(i).y;
+        double global_theta = pedestrians.at(i).theta;
+
+         // predicted path
+        autoware_perception_msgs::msg::PredictedPath predictedPath;
+        geometry_msgs::msg::Pose pose; pose.position.x = global_x; pose.position.y = global_y;
+        predictedPath.path.push_back(pose);
+        predictedPath.time_step.nanosec = (int)dT*1e9;
+        predictedPath.confidence = 1.0;
+
+        int N = (int)tau_h / dT;
+        for (int n=1; n<=N; n++)
+        {
+            // loop through the prediction horizon and estimate pedestrian pose            
+            pose.position.x = pose.position.x + pedestrians.at(i).vx * dT * std::cos(global_theta);
+            pose.position.y = pose.position.y + pedestrians.at(i).vx * dT * std::sin(global_theta);
+
+            // global to local transform
+            geometry_msgs::msg::Pose localPose;
+            localPose.position.x = (pose.position.x - m_xEgo)*std::cos(m_thetaEgo) + (pose.position.y - m_yEgo)*std::sin(m_thetaEgo);
+            localPose.position.y = -(pose.position.x - m_xEgo)*std::sin(m_thetaEgo) + (pose.position.y - m_yEgo)*std::cos(m_thetaEgo);
+
+            predictedPath.path.push_back(localPose);
+        }
+
+        autoware_perception_msgs::msg::PredictedObject object;
+        object.kinematics.initial_pose_with_covariance.pose.position.x = (global_x - m_xEgo)*std::cos(m_thetaEgo) + (global_y - m_yEgo)*std::sin(m_thetaEgo);
+        object.kinematics.initial_pose_with_covariance.pose.position.y = -(global_x - m_xEgo)*std::sin(m_thetaEgo) + (global_y - m_yEgo)*std::cos(m_thetaEgo);
+        crp::apl::Quaternion q = yawToQuaternion(global_theta-m_thetaEgo);
+        object.kinematics.initial_pose_with_covariance.pose.orientation.x = q.x;
+        object.kinematics.initial_pose_with_covariance.pose.orientation.y = q.y;
+        object.kinematics.initial_pose_with_covariance.pose.orientation.z = q.z;
+        object.kinematics.initial_pose_with_covariance.pose.orientation.w = q.w;      
+        
+        object.kinematics.predicted_paths.push_back(predictedPath);
+        
+        autoware_perception_msgs::msg::ObjectClassification objectClassification;
+        objectClassification.label = pedestrians.at(i).type;
+        object.classification.push_back(objectClassification);
+
+        object.kinematics.initial_twist_with_covariance.twist.linear.x = pedestrians.at(i).vx;
+        object.kinematics.initial_acceleration_with_covariance.accel.linear.x = pedestrians.at(i).ax;
+
+        m_scenarioMsg.local_moving_objects.objects.push_back(object);
+    }
+     
      
     return;
 }
@@ -363,6 +418,49 @@ void crp::apl::Simulator::generateFollowedObject()
     return;
 }
 
+void crp::apl::Simulator::generatePedestrian()
+{
+    // generate pedestrian with predicted path across the street
+    m_pedestrianGenerationTimer = m_pedestrianGenerationTimer + dT;
+
+    // loop through objects and adjust their position
+    for (long unsigned int i = 0; i<pedestrians.size(); i++)
+    {
+        pedestrians.at(i).x = pedestrians.at(i).x + pedestrians.at(i).vx * dT * std::cos(pedestrians.at(i).theta);
+        pedestrians.at(i).y = pedestrians.at(i).y + pedestrians.at(i).vx * dT * std::sin(pedestrians.at(i).theta);
+
+        if (pedestrians.at(i).y > m_coefficientsLeftLaneCenterline[0] + p_laneWidth/2 + 
+            m_coefficientsLeftLaneCenterline[1]*pedestrians.at(i).x + 
+            m_coefficientsLeftLaneCenterline[2]*std::pow(pedestrians.at(i).x,2) + 
+            m_coefficientsLeftLaneCenterline[3]*std::pow(pedestrians.at(i).x,3))
+        {
+            // remove the object from the vector as it passes
+            pedestrians.erase(pedestrians.begin());
+        }
+    }
+
+    if (m_pedestrianGenerationTimer > p_objectSeparationTime && m_numberOfAllPedestrians < p_numberOfPedestrians && runningTimer >= p_pedestrianAppearTime)
+    {
+        m_pedestrianGenerationTimer = 0.0;
+        m_numberOfAllPedestrians++;
+        // new object shall be added to the vector
+        MovingObject newObject;
+        newObject.x = pedestrianCrossingStartPoint;
+        newObject.y = m_coefficientsEgoLaneCenterline[0] - p_laneWidth/2 + 
+            m_coefficientsEgoLaneCenterline[1]*newObject.x + 
+            m_coefficientsEgoLaneCenterline[2]*std::pow(newObject.x,2) + 
+            m_coefficientsEgoLaneCenterline[3]*std::pow(newObject.x,3);
+        newObject.theta = std::atan(m_coefficientsEgoLaneCenterline[1] + 
+            m_coefficientsEgoLaneCenterline[2]*2*newObject.x + 
+            m_coefficientsEgoLaneCenterline[3]*3*std::pow(newObject.x,2)) + 3.14159/2;
+
+        newObject.vx = 0.8;
+        newObject.type = 7U;
+
+        pedestrians.push_back(newObject);
+    }
+}
+
 void crp::apl::Simulator::generateOncomingObjects()
 {
     m_oncomingObjectGenerationTimer = m_oncomingObjectGenerationTimer + dT;
@@ -389,7 +487,7 @@ void crp::apl::Simulator::generateOncomingObjects()
     // add new object in the left lane only!
     std::srand(std::time(nullptr));   // seed once
     int r = std::rand();              // random int
-    if (abs(r)%7==0 && m_oncomingObjectGenerationTimer > p_objectSeparationTime)
+    if (abs(r)%7==0 && m_oncomingObjectGenerationTimer > p_objectSeparationTime && oncomingObjects.size() < p_numberOfOncomingObject)
     {
         m_oncomingObjectGenerationTimer = 0.0;
         // new object shall be added to the vector
@@ -452,6 +550,8 @@ void crp::apl::Simulator::run()
     }
 
     m_useInternalController = this->get_parameter("/simulator/use_internal_controller").as_bool();
+    p_numberOfFollowedObjects = this->get_parameter("/simulator/numberOfFollowedObjects").as_int();
+    p_numberOfOncomingObject = this->get_parameter("/simulator/numberOfOncomingObjects").as_int();
 
     if(m_useInternalController)
     {
@@ -471,6 +571,7 @@ void crp::apl::Simulator::run()
     // generate objects
     generateOncomingObjects();
     generateFollowedObject();
+    generatePedestrian();
 
     mapEgo();
     mapScenario();

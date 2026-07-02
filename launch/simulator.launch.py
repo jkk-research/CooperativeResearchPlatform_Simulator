@@ -23,18 +23,27 @@ def generate_launch_description():
     )
     
     initialEgoState_arg = DeclareLaunchArgument(
-        '/simulator/initial_ego_state', default_value=TextSubstitution(text='[0.0, 10.0, 0.0]'),
+        '/simulator/initial_ego_state', default_value=TextSubstitution(text='[0.0, 1.0, 0.0]'),
         description = 'Initital ego state as [x, vx, ax]'
     )
 
     initialObjectState_arg = DeclareLaunchArgument(
-        '/simulator/initial_object_state', default_value=TextSubstitution(text='[100.0, 0.0, 0.0]'),
+        '/simulator/initial_object_state', default_value=TextSubstitution(text='[50.0, 8.0, 0.0]'),
         description = 'Initital object state as [x, vx, ax]'
     )
 
     useInternalController_arg = DeclareLaunchArgument(
         '/simulator/use_internal_controller', default_value=TextSubstitution(text='true')
     )
+
+    numberOfFollowedObject_arg = DeclareLaunchArgument(
+        '/simulator/numberOfFollowedObjects', default_value=TextSubstitution(text='0')
+    )
+
+    numberOfOncomingObject_arg = DeclareLaunchArgument(
+        '/simulator/numberOfOncomingObjects', default_value=TextSubstitution(text='0')
+    )
+
 
     simulator = Node(
         package="simulator",
@@ -55,6 +64,8 @@ def generate_launch_description():
                 value_type = List[float]
             ),
             '/simulator/use_internal_controller': LaunchConfiguration('/simulator/use_internal_controller'),
+            '/simulator/numberOfFollowedObjects': LaunchConfiguration('/simulator/numberOfFollowedObjects'),
+            '/simulator/numberOfOncomingObjects': LaunchConfiguration('/simulator/numberOfOncomingObjects'),
         }]
     )
 
@@ -73,6 +84,8 @@ def generate_launch_description():
         initialEgoState_arg,
         initialObjectState_arg,
         useInternalController_arg,
+        numberOfFollowedObject_arg,
+        numberOfOncomingObject_arg,
         simulator,
         tf_broadcaster
     ])

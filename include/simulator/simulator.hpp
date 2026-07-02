@@ -47,7 +47,7 @@ private:
     
     void run();
 
-    float dT = 0.02f; // model runs in 20ms
+    float dT = 0.05f; // model runs in 20ms
     double runningTimer = 0.0f;
 
     // member methods
@@ -56,6 +56,7 @@ private:
     void vehicleLatController();
     void generateOncomingObjects();
     void generateFollowedObject();  
+    void generatePedestrian();
 
     void mapEgo();
     void mapScenario();
@@ -78,7 +79,7 @@ private:
     bool m_initialized = false;
 
     // target values coming from the vehicle
-    double m_vehicleSpeedTarget{15.0f};
+    double m_vehicleSpeedTarget{0.0f};
     double m_targetSteeringAngle{0.0f};
 
     // ego vehicle states
@@ -102,16 +103,25 @@ private:
     bool m_useInternalController = true;
     double m_errorIntegral{0.0f};
     double p_lookAheadTime{1.5};
+    double pedestrianCrossingStartPoint{40.0};
     
     // dynamic environmental parameters
     double p_objectSeparationTime{2.5};
     double m_oncomingObjectGenerationTimer = {0.0f};
     double m_followedObjectGenerationTimer = {0.0f};
+    double m_pedestrianGenerationTimer = {p_objectSeparationTime};
     unsigned int p_numberOfFollowedObjects{2U};
+    unsigned int p_numberOfOncomingObject{10U};
+    unsigned int p_numberOfPedestrians{1U};
+    unsigned int m_numberOfAllPedestrians{0U};
+    double p_pedestrianAppearTime{3.0};
+    double p_laneWidth{3.85};
+    double tau_h{4.0};
     MovingObject initialFollowedObject;
 
     std::vector<MovingObject> oncomingObjects;
     std::vector<MovingObject> followedObjects;
+    std::vector<MovingObject> pedestrians;
 };
 
 } // namespace apl
