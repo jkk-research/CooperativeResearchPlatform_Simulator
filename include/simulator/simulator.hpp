@@ -79,7 +79,7 @@ private:
     bool m_initialized = false;
 
     // target values coming from the vehicle
-    double m_vehicleSpeedTarget{0.0f};
+    double m_vehicleSpeedTarget{13.0f};
     double m_targetSteeringAngle{0.0f};
 
     // ego vehicle states
@@ -89,12 +89,12 @@ private:
     double m_yEgo{0.0f}; // in m
     double m_thetaEgo{0.0f}; // in rad
     double m_yawRate{0.0f}; // in rad/s
-    double m_speedInit{20.0f}; // in mps
+    double m_speedInit{13.0f}; // in mps
 
     double p_axleDistance{2.7};
 
     // static environmental parameters
-    double m_scenarioDistance{1000.0f};
+    double m_scenarioDistance{75.0f};
     double m_dx = {0.5f};
     double m_coefficientsEgoLaneCenterline[4] = {0, 0.005, -0.001, 0.000001};
     double m_coefficientsLeftLaneCenterline[4] = {3.9, 0.005, -0.001, 0.000001};
@@ -103,7 +103,7 @@ private:
     bool m_useInternalController = true;
     double m_errorIntegral{0.0f};
     double p_lookAheadTime{1.5};
-    double pedestrianCrossingStartPoint{40.0};
+    double pedestrianCrossingStartPoint{100.0};
     
     // dynamic environmental parameters
     double p_objectSeparationTime{2.5};
@@ -114,7 +114,10 @@ private:
     unsigned int p_numberOfOncomingObject{10U};
     unsigned int p_numberOfPedestrians{1U};
     unsigned int m_numberOfAllPedestrians{0U};
-    double p_pedestrianAppearTime{3.0};
+    
+    double p_pedestrianAppearTime{2.5};
+    double p_pedestrianSpeed = {0.5};
+    
     double p_laneWidth{3.85};
     double tau_h{4.0};
     MovingObject initialFollowedObject;

@@ -23,12 +23,12 @@ def generate_launch_description():
     )
     
     initialEgoState_arg = DeclareLaunchArgument(
-        '/simulator/initial_ego_state', default_value=TextSubstitution(text='[0.0, 1.0, 0.0]'),
+        '/simulator/initial_ego_state', default_value=TextSubstitution(text='[0.0, 13.0, 0.0]'),
         description = 'Initital ego state as [x, vx, ax]'
     )
 
     initialObjectState_arg = DeclareLaunchArgument(
-        '/simulator/initial_object_state', default_value=TextSubstitution(text='[50.0, 8.0, 0.0]'),
+        '/simulator/initial_object_state', default_value=TextSubstitution(text='[60.0, 8.0, 0.0]'),
         description = 'Initital object state as [x, vx, ax]'
     )
 
@@ -37,7 +37,7 @@ def generate_launch_description():
     )
 
     numberOfFollowedObject_arg = DeclareLaunchArgument(
-        '/simulator/numberOfFollowedObjects', default_value=TextSubstitution(text='0')
+        '/simulator/numberOfFollowedObjects', default_value=TextSubstitution(text='1')
     )
 
     numberOfOncomingObject_arg = DeclareLaunchArgument(

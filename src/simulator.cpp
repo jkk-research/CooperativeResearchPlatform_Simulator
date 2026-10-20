@@ -62,8 +62,8 @@ double crp::apl::Simulator::vehicleLongController()
         double error = m_vehicleSpeedTarget - m_vxEgo;
         m_errorIntegral = m_errorIntegral + dT*error;
 
-        double P = 3.0;
-        double I = 0.1;
+        double P = 6.0;
+        double I = 0.0;
 
         return (P*error + I*m_errorIntegral);
     }
@@ -114,6 +114,7 @@ void crp::apl::Simulator::mapEgo()
     m_egoMsg.header.stamp = this->now();
     m_egoMsg.header.frame_id = "map";
     m_egoMsg.pose.pose.position.x = m_xEgo;
+    m_egoMsg.pose.pose.position.y = m_yEgo;
     m_egoMsg.twist.twist.linear.x = m_vxEgo;
     m_egoMsg.accel.accel.linear.x = m_axEgo;
 
@@ -147,7 +148,7 @@ void crp::apl::Simulator::mapScenario()
 
     double x = m_xEgo;
 
-    while (x < m_scenarioDistance)
+    while (x < m_xEgo+m_scenarioDistance)
     {
         tier4_planning_msgs::msg::PathPointWithLaneId pathPoint;
         geometry_msgs::msg::Point leftBoundPoint;
@@ -194,7 +195,7 @@ void crp::apl::Simulator::mapScenario()
 
     x = m_xEgo;
 
-    while (x < m_scenarioDistance)
+    while (x < m_xEgo + m_scenarioDistance)
     {
         tier4_planning_msgs::msg::PathPointWithLaneId pathPoint;
         geometry_msgs::msg::Point leftBoundPoint;
@@ -269,6 +270,32 @@ void crp::apl::Simulator::mapScenario()
         double global_y = followedObjects.at(i).y;
         double global_theta = followedObjects.at(i).theta;
 
+        // predicted path
+        autoware_perception_msgs::msg::PredictedPath predictedPath;
+        geometry_msgs::msg::Pose pose; pose.position.x = global_x; pose.position.y = global_y;
+        predictedPath.path.push_back(pose);
+        predictedPath.time_step.nanosec = (int)dT*1e9;
+        predictedPath.confidence = 1.0;
+
+        int N = (int)tau_h / dT;
+        for (int n=1; n<=N; n++)
+        {
+            // loop through the prediction horizon and estimate pedestrian pose            
+            pose.position.x = pose.position.x + followedObjects.at(i).vx * dT * std::cos(global_theta);
+
+            pose.position.y = m_coefficientsEgoLaneCenterline[0] + 
+                m_coefficientsEgoLaneCenterline[1]*pose.position.x + 
+                m_coefficientsEgoLaneCenterline[2]*std::pow(pose.position.x,2) + 
+                m_coefficientsEgoLaneCenterline[3]*std::pow(pose.position.x,3);
+
+            // global to local transform
+            geometry_msgs::msg::Pose localPose;
+            localPose.position.x = (pose.position.x - m_xEgo)*std::cos(m_thetaEgo) + (pose.position.y - m_yEgo)*std::sin(m_thetaEgo);
+            localPose.position.y = -(pose.position.x - m_xEgo)*std::sin(m_thetaEgo) + (pose.position.y - m_yEgo)*std::cos(m_thetaEgo);
+
+            predictedPath.path.push_back(localPose);
+        }
+
         autoware_perception_msgs::msg::PredictedObject object;
         object.kinematics.initial_pose_with_covariance.pose.position.x = (global_x - m_xEgo)*std::cos(m_thetaEgo) + (global_y - m_yEgo)*std::sin(m_thetaEgo);
         object.kinematics.initial_pose_with_covariance.pose.position.y = -(global_x - m_xEgo)*std::sin(m_thetaEgo) + (global_y - m_yEgo)*std::cos(m_thetaEgo);
@@ -276,7 +303,9 @@ void crp::apl::Simulator::mapScenario()
         object.kinematics.initial_pose_with_covariance.pose.orientation.x = q.x;
         object.kinematics.initial_pose_with_covariance.pose.orientation.y = q.y;
         object.kinematics.initial_pose_with_covariance.pose.orientation.z = q.z;
-        object.kinematics.initial_pose_with_covariance.pose.orientation.w = q.w;        
+        object.kinematics.initial_pose_with_covariance.pose.orientation.w = q.w;  
+        
+        object.kinematics.predicted_paths.push_back(predictedPath);
         
         autoware_perception_msgs::msg::ObjectClassification objectClassification;
         objectClassification.label = followedObjects.at(i).type;
@@ -454,7 +483,7 @@ void crp::apl::Simulator::generatePedestrian()
             m_coefficientsEgoLaneCenterline[2]*2*newObject.x + 
             m_coefficientsEgoLaneCenterline[3]*3*std::pow(newObject.x,2)) + 3.14159/2;
 
-        newObject.vx = 0.8;
+        newObject.vx = p_pedestrianSpeed;
         newObject.type = 7U;
 
         pedestrians.push_back(newObject);
