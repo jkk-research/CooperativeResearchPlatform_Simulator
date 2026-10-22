@@ -30,7 +30,7 @@ private:
     // Timestamp: use your message stamp if it exists, otherwise use node time.
     // If your msg has header.stamp, prefer that.
     // t.header.stamp = msg->header.stamp;
-    t.header.stamp = this->get_clock()->now();
+    t.header.stamp = msg->header.stamp;
 
     t.header.frame_id = "map";
     t.child_frame_id = "base_link";

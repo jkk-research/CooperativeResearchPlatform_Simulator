@@ -3,7 +3,7 @@
 <package format="3">
   <name>simulator</name>
   <version>0.0.0</version>
-  <description>simulator</description>
+  <description>File-driven driving scenario simulator</description>
   <maintainer email="gergo.igneczi@ga.sze.hu">IgnecziGergo</maintainer>
   <license>Apache License 2.0</license>
 
@@ -12,6 +12,14 @@
   <depend>rclcpp</depend>
   <depend>crp_msgs</depend>
   <depend>autoware_control_msgs</depend>
+  <depend>autoware_perception_msgs</depend>
+  <depend>tier4_planning_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>libmatio-dev</depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>
