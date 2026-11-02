@@ -72,16 +72,25 @@ std::vector<double> series(matvar_t * variable, std::size_t length, double fallb
     return result;
 }
 
-std::vector<MapPoint> points(matvar_t * variable)
+std::vector<MapPoint> points(matvar_t * variable, const std::string & name, bool require_z = false)
 {
-    if (!variable || variable->rank != 2 || variable->dims[1] != 2)
+    if (!variable || variable->rank != 2 || (variable->dims[1] != 2 && variable->dims[1] != 3))
     {
-        throw std::runtime_error("Expected an Nx2 map-frame waypoint matrix");
+        throw std::runtime_error(name + ": expected an Nx2 or Nx3 map-frame waypoint matrix");
     }
+    if (require_z && variable->dims[1] != 3) {throw std::runtime_error(name + ": missing z in elevated scenario");}
     std::vector<MapPoint> result;
     for (std::size_t index = 0; index < variable->dims[0]; ++index)
     {
-        result.push_back({number(variable, index), number(variable, index + variable->dims[0])});
+        try
+        {
+            result.push_back({number(variable, index), number(variable, index + variable->dims[0]),
+                variable->dims[1] == 3 ? number(variable, index + 2 * variable->dims[0]) : 0.0});
+        }
+        catch (const std::exception & error)
+        {
+            throw std::runtime_error(name + " row " + std::to_string(index + 1) + ": " + error.what());
+        }
     }
     if (result.size() < 2) {throw std::runtime_error("A corridor needs at least two waypoints");}
     return result;
@@ -120,11 +129,19 @@ void loadActors(mat_t * file, const char * name, unsigned int classification,
         auto position = field(variable.get(), "position", actor_index);
         auto position_x = field(position, "x");
         auto position_y = field(position, "y");
+        auto position_z = field(position, "z");
         const auto length = std::min({count(position_x), count(position_y), data.time.size()});
         if (length == 0) {throw std::runtime_error(std::string(name) + ": missing positions");}
+        if ((data.has_elevation && count(position_z) == 0) ||
+            (count(position_z) > 1 && count(position_z) < length))
+        {
+            throw std::runtime_error(std::string(name) + "(" + std::to_string(actor_index + 1) +
+                ").position.z: missing or shorter than x/y");
+        }
         for (std::size_t index = 0; index < length; ++index)
         {
-            actor.positions.push_back({number(position_x, index), number(position_y, index)});
+            actor.positions.push_back({number(position_x, index), number(position_y, index),
+                count(position_z) > 0 ? number(position_z, std::min(index, count(position_z) - 1)) : 0.0});
         }
         auto velocity = field(variable.get(), "velocity", actor_index);
         if (velocity && velocity->class_type == MAT_C_STRUCT) {velocity = field(velocity, "velocity");}
@@ -157,6 +174,7 @@ void loadActors(mat_t * file, const char * name, unsigned int classification,
             auto trajectory = field(alternatives, "trajectories", branch);
             auto trajectory_x = field(trajectory, "x");
             auto trajectory_y = field(trajectory, "y");
+            auto trajectory_z = field(trajectory, "z");
             auto confidence = field(alternatives, "confidence", branch);
             if (!trajectory_x || !trajectory_y || !confidence ||
                 trajectory_x->rank != 2 || trajectory_y->rank != 2 || confidence->rank != 2)
@@ -165,6 +183,11 @@ void loadActors(mat_t * file, const char * name, unsigned int classification,
             }
             const auto rows = std::min({trajectory_x->dims[0], trajectory_y->dims[0], confidence->dims[0]});
             const auto columns = std::min({trajectory_x->dims[1], trajectory_y->dims[1], confidence->dims[1], length});
+            if ((data.has_elevation && !trajectory_z) || (trajectory_z &&
+                (trajectory_z->rank != 2 || trajectory_z->dims[0] < rows || trajectory_z->dims[1] < columns)))
+            {
+                throw std::runtime_error(std::string(name) + ": prediction z missing or inconsistent with x/y");
+            }
             for (std::size_t observation = 0; observation < std::min(rows, columns); ++observation)
             {
                 TrajectorySample sample;
@@ -178,7 +201,8 @@ void loadActors(mat_t * file, const char * name, unsigned int classification,
                     if (number(confidence, future + observation * confidence->dims[0]) <= 0.0) {break;}
                     sample.points.push_back({
                         number(trajectory_x, future + observation * trajectory_x->dims[0]),
-                        number(trajectory_y, future + observation * trajectory_y->dims[0])});
+                        number(trajectory_y, future + observation * trajectory_y->dims[0]),
+                        trajectory_z ? number(trajectory_z, future + observation * trajectory_z->dims[0]) : 0.0});
                 }
                 if (!sample.points.empty()) {actor.alternatives[observation].push_back(std::move(sample));}
             }
@@ -208,6 +232,54 @@ double pathHeading(const std::vector<MapPoint> & points, std::size_t index)
     return 0.0;
 }
 
+double pathPitch(const std::vector<MapPoint> & points, std::size_t index)
+{
+    if (points.size() < 2) {return 0.0;}
+    const auto origin = std::min(index, points.size() - 1);
+    for (std::size_t next = origin + 1; next < points.size(); ++next)
+    {
+        const double distance = std::hypot(points[next].x - points[origin].x, points[next].y - points[origin].y);
+        if (distance > 1e-8) {return std::atan2(points[next].z - points[origin].z, distance);}
+    }
+    for (std::size_t previous = origin; previous > 0; --previous)
+    {
+        const double distance = std::hypot(points[origin].x - points[previous - 1].x,
+            points[origin].y - points[previous - 1].y);
+        if (distance > 1e-8) {return std::atan2(points[origin].z - points[previous - 1].z, distance);}
+    }
+    return 0.0;
+}
+
+PathPose pathPoseAtDistance(const std::vector<MapPoint> & points, double distance)
+{
+    if (points.size() < 2 || !std::isfinite(distance) || distance < 0.0)
+    {
+        throw std::invalid_argument("Route displacement must be finite and nonnegative on a path with at least two points");
+    }
+    double traversed = 0.0;
+    for (std::size_t index = 0; index + 1 < points.size(); ++index)
+    {
+        const auto & start = points[index];
+        const auto & end = points[index + 1];
+        const double segment = std::hypot(end.x - start.x, end.y - start.y);
+        if (segment <= 1e-8) {continue;}
+        if (distance <= traversed + segment)
+        {
+            const double fraction = std::clamp((distance - traversed) / segment, 0.0, 1.0);
+            return {{start.x + fraction * (end.x - start.x),
+                     start.y + fraction * (end.y - start.y),
+                     start.z + fraction * (end.z - start.z)},
+                    std::atan2(end.y - start.y, end.x - start.x)};
+        }
+        traversed += segment;
+    }
+    if (distance > traversed + 1e-8)
+    {
+        throw std::out_of_range("Initial displacement exceeds target-path length");
+    }
+    return {points.back(), pathHeading(points, points.size() - 1)};
+}
+
 ScenarioData ScenarioData::load(const std::string & filename, double prediction_horizon,
     bool trim_zero_padding)
 {
@@ -234,11 +306,32 @@ ScenarioData ScenarioData::load(const std::string & filename, double prediction_
         }
     }
     MatVariable target(Mat_VarRead(file.get(), "targetPath_qg"), Mat_VarFree);
-    data.target_path = points(target.get());
+    data.target_path = points(target.get(), "targetPath_qg");
+    data.has_elevation = target->dims[1] == 3;
+    MatVariable surface(Mat_VarRead(file.get(), "drivableSurface_qg"), Mat_VarFree);
+    if (surface) {points(surface.get(), "drivableSurface_qg", data.has_elevation);}
     MatVariable speed(Mat_VarRead(file.get(), "speedLimit"), Mat_VarFree);
-    if (count(speed.get()) != 1 && count(speed.get()) != data.target_path.size())
+    const auto speed_count = count(speed.get());
+    const auto path_count = data.target_path.size();
+    if (speed_count != 1 && speed_count != path_count)
     {
-        throw std::runtime_error("speedLimit must be scalar or match targetPath_qg");
+        bool repeated_tail = speed_count > path_count;
+        if (repeated_tail)
+        {
+            const double last_route_speed = number(speed.get(), path_count - 1);
+            for (std::size_t index = path_count; index < speed_count; ++index)
+            {
+                if (std::abs(number(speed.get(), index) - last_route_speed) > 1e-8)
+                {
+                    repeated_tail = false;
+                    break;
+                }
+            }
+        }
+        if (!repeated_tail)
+        {
+            throw std::runtime_error("speedLimit must be scalar, match targetPath_qg, or have a repeated trailing value");
+        }
     }
     data.speed_limits = series(speed.get(), data.target_path.size(), 0.0);
     for (double limit : data.speed_limits)
@@ -252,7 +345,8 @@ ScenarioData ScenarioData::load(const std::string & filename, double prediction_
     }
     for (std::size_t index = 0; index < count(lanes.get()); ++index)
     {
-        data.lanes.push_back(points(Mat_VarGetCell(lanes.get(), static_cast<int>(index))));
+        data.lanes.push_back(points(Mat_VarGetCell(lanes.get(), static_cast<int>(index)),
+            "lanes(" + std::to_string(index + 1) + ")", data.has_elevation));
     }
     MatVariable crossings(Mat_VarRead(file.get(), "pedestrian_crossing"), Mat_VarFree);
     for (std::size_t index = 0; index < count(crossings.get()); ++index)
@@ -260,13 +354,20 @@ ScenarioData ScenarioData::load(const std::string & filename, double prediction_
         MapCrossing crossing;
         auto position_x = field(crossings.get(), "x", index);
         auto position_y = field(crossings.get(), "y", index);
+        auto position_z = field(crossings.get(), "z", index);
         if (count(position_x) < 2 || count(position_x) != count(position_y))
         {
             throw std::runtime_error("pedestrian_crossing needs matching x/y centerline samples");
         }
+        if ((data.has_elevation && count(position_z) == 0) ||
+            (count(position_z) > 1 && count(position_z) != count(position_x)))
+        {
+            throw std::runtime_error("pedestrian_crossing.z missing or inconsistent with x/y");
+        }
         for (std::size_t point = 0; point < count(position_x); ++point)
         {
-            crossing.centerline.push_back({number(position_x, point), number(position_y, point)});
+            crossing.centerline.push_back({number(position_x, point), number(position_y, point),
+                count(position_z) > 0 ? number(position_z, std::min(point, count(position_z) - 1)) : 0.0});
         }
         auto width = field(crossings.get(), "width", index);
         if (count(width) > 0)

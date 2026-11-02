@@ -14,6 +14,13 @@ struct MapPoint
 {
     double x{0.0};
     double y{0.0};
+    double z{0.0};
+};
+
+struct PathPose
+{
+    MapPoint point;
+    double heading{0.0};
 };
 
 struct TrajectorySample
@@ -51,6 +58,7 @@ public:
 
     std::vector<double> time;
     double time_step{0.05};
+    bool has_elevation{false};
     std::vector<MapPoint> target_path;
     std::vector<std::vector<MapPoint>> lanes;
     std::vector<double> speed_limits;
@@ -59,6 +67,8 @@ public:
 };
 
 double pathHeading(const std::vector<MapPoint> & points, std::size_t index);
+double pathPitch(const std::vector<MapPoint> & points, std::size_t index);
+PathPose pathPoseAtDistance(const std::vector<MapPoint> & points, double distance);
 
 }
 }

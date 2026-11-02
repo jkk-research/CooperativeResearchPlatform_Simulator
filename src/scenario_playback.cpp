@@ -4,7 +4,9 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <stdexcept>
 #include <utility>
+#include <tf2/LinearMath/Transform.h>
 
 namespace crp
 {
@@ -13,15 +15,20 @@ namespace apl
 namespace
 {
 
-geometry_msgs::msg::Pose localPose(const MapPoint & point, double heading, const VehicleState & ego)
+geometry_msgs::msg::Pose localPose(const MapPoint & point, double heading, const VehicleState & ego,
+    double pitch = 0.0)
 {
     geometry_msgs::msg::Pose pose;
-    const double delta_x = point.x - ego.x;
-    const double delta_y = point.y - ego.y;
-    pose.position.x = delta_x * std::cos(ego.yaw) + delta_y * std::sin(ego.yaw);
-    pose.position.y = -delta_x * std::sin(ego.yaw) + delta_y * std::cos(ego.yaw);
-    pose.orientation.z = std::sin(0.5 * (heading - ego.yaw));
-    pose.orientation.w = std::cos(0.5 * (heading - ego.yaw));
+    tf2::Quaternion ego_rotation;
+    ego_rotation.setRPY(0.0, -ego.pitch, ego.yaw);
+    const tf2::Transform ego_transform(ego_rotation, tf2::Vector3(ego.x, ego.y, ego.z));
+    const auto local = ego_transform.inverse() * tf2::Vector3(point.x, point.y, point.z);
+    pose.position.x = local.x(); pose.position.y = local.y(); pose.position.z = local.z();
+    tf2::Quaternion map_rotation;
+    map_rotation.setRPY(0.0, -pitch, heading);
+    const auto rotation = ego_rotation.inverse() * map_rotation;
+    pose.orientation.x = rotation.x(); pose.orientation.y = rotation.y();
+    pose.orientation.z = rotation.z(); pose.orientation.w = rotation.w();
     return pose;
 }
 
@@ -39,7 +46,7 @@ std::size_t nearestPoint(const std::vector<MapPoint> & points, const VehicleStat
 
 autoware_perception_msgs::msg::PredictedPath predictedPath(
     const std::vector<MapPoint> & points, double confidence, double time_step,
-    const VehicleState & ego, double fallback_heading)
+    const VehicleState & ego, double fallback_heading, double fallback_pitch)
 {
     autoware_perception_msgs::msg::PredictedPath result;
     const auto nanoseconds = static_cast<std::int64_t>(std::llround(time_step * 1e9));
@@ -49,7 +56,8 @@ autoware_perception_msgs::msg::PredictedPath predictedPath(
     for (std::size_t index = 0; index < points.size(); ++index)
     {
         result.path.push_back(localPose(points[index],
-            points.size() > 1 ? pathHeading(points, index) : fallback_heading, ego));
+            points.size() > 1 ? pathHeading(points, index) : fallback_heading, ego,
+            points.size() > 1 ? pathPitch(points, index) : fallback_pitch));
     }
     return result;
 }
@@ -59,6 +67,29 @@ autoware_perception_msgs::msg::PredictedPath predictedPath(
 ScenarioPlayback::ScenarioPlayback(ScenarioData data, PlaybackSettings settings)
 : m_data(std::move(data)), m_settings(settings)
 {
+    if (!std::isfinite(settings.scenario_distance) || settings.scenario_distance <= 0.0 ||
+        !std::isfinite(settings.scenario_lookahead_time) || settings.scenario_lookahead_time < 0.0)
+    {
+        throw std::runtime_error("Invalid scenario distance or lookahead time");
+    }
+    for (const auto value : {settings.crossing_pedestrian_probability, settings.roadside_pedestrian_probability,
+        settings.virtual_vehicle_probability, settings.pedestrian_walking_confidence,
+        settings.virtual_vehicle_fast_confidence})
+    {
+        if (!std::isfinite(value) || value < 0.0 || value > 1.0)
+        {
+            throw std::runtime_error("Virtual-object probabilities must be finite and between zero and one");
+        }
+    }
+    for (const auto value : {settings.pedestrian_walking_speed, settings.pedestrian_running_speed,
+        settings.virtual_vehicle_fast_speed, settings.virtual_vehicle_slow_speed})
+    {
+        if (!std::isfinite(value) || value <= 0.0)
+        {
+            throw std::runtime_error("Virtual-object speeds must be finite and positive");
+        }
+    }
+    if (settings.maximum_virtual_objects == 0) {throw std::runtime_error("maximum_virtual_objects must be positive");}
 }
 
 const ScenarioData & ScenarioPlayback::data() const {return m_data;}
@@ -73,6 +104,39 @@ double ScenarioPlayback::speedLimit(const VehicleState & ego) const
     return m_data.speed_limits[nearestTarget(ego)];
 }
 
+double ScenarioPlayback::scenarioDistance(const VehicleState & ego) const
+{
+    return std::max(m_settings.scenario_distance,
+        speedLimit(ego) * m_settings.scenario_lookahead_time);
+}
+
+RoadState ScenarioPlayback::roadState(const VehicleState & ego) const
+{
+    RoadState result;
+    double minimum = std::numeric_limits<double>::infinity();
+    const auto & route = m_data.target_path;
+    for (std::size_t index = 1; index < route.size(); ++index)
+    {
+        const auto & first = route[index - 1];
+        const auto & second = route[index];
+        const double delta_x = second.x - first.x;
+        const double delta_y = second.y - first.y;
+        const double squared_length = delta_x * delta_x + delta_y * delta_y;
+        if (squared_length < 1e-12) {continue;}
+        const double fraction = std::clamp(((ego.x - first.x) * delta_x +
+            (ego.y - first.y) * delta_y) / squared_length, 0.0, 1.0);
+        const double distance = std::hypot(first.x + fraction * delta_x - ego.x,
+            first.y + fraction * delta_y - ego.y);
+        if (distance >= minimum) {continue;}
+        minimum = distance;
+        result.elevation = first.z + fraction * (second.z - first.z);
+        const double heading = std::atan2(delta_y, delta_x);
+        result.pitch = std::atan((second.z - first.z) / std::sqrt(squared_length) *
+            std::cos(ego.yaw - heading));
+    }
+    return result;
+}
+
 crp_msgs::msg::Scenario ScenarioPlayback::message(const VehicleState & ego, double elapsed) const
 {
     crp_msgs::msg::Scenario result;
@@ -80,6 +144,7 @@ crp_msgs::msg::Scenario ScenarioPlayback::message(const VehicleState & ego, doub
     result.local_moving_objects.header.frame_id = "base_link";
     result.local_obstacles.header.frame_id = "base_link";
     const auto target_index = nearestTarget(ego);
+    const double scenario_distance = scenarioDistance(ego);
     const auto append_corridor = [&](const std::vector<MapPoint> & points, double width,
         bool target, std::size_t lane_id)
     {
@@ -92,14 +157,14 @@ crp_msgs::msg::Scenario ScenarioPlayback::message(const VehicleState & ego, doub
         std::size_t begin = nearest;
         std::size_t end = nearest + 1;
         double backward = 0.0;
-        while (begin > 0 && backward < m_settings.scenario_distance)
+        while (begin > 0 && backward < scenario_distance)
         {
             backward += std::hypot(points[begin].x - points[begin - 1].x,
                 points[begin].y - points[begin - 1].y);
             --begin;
         }
         double forward = 0.0;
-        while (end < points.size() && forward < m_settings.scenario_distance)
+        while (end < points.size() && forward < scenario_distance)
         {
             forward += std::hypot(points[end].x - points[end - 1].x,
                 points[end].y - points[end - 1].y);
@@ -107,21 +172,21 @@ crp_msgs::msg::Scenario ScenarioPlayback::message(const VehicleState & ego, doub
         }
         for (std::size_t index = begin; index < end; ++index)
         {
-            if (std::hypot(points[index].x - ego.x, points[index].y - ego.y) > m_settings.scenario_distance)
+            if (std::hypot(points[index].x - ego.x, points[index].y - ego.y) > scenario_distance)
             {
                 continue;
             }
             const auto heading = pathHeading(points, index);
             tier4_planning_msgs::msg::PathPointWithLaneId point;
-            point.point.pose = localPose(points[index], heading, ego);
+            point.point.pose = localPose(points[index], heading, ego, pathPitch(points, index));
             point.point.longitudinal_velocity_mps = static_cast<float>(
                 target ? m_data.speed_limits[index] : m_data.speed_limits[target_index]);
             point.lane_ids.push_back(static_cast<std::int64_t>(lane_id));
             corridor.path.points.push_back(point);
             const MapPoint left{points[index].x - 0.5 * width * std::sin(heading),
-                points[index].y + 0.5 * width * std::cos(heading)};
+                points[index].y + 0.5 * width * std::cos(heading), points[index].z};
             const MapPoint right{points[index].x + 0.5 * width * std::sin(heading),
-                points[index].y - 0.5 * width * std::cos(heading)};
+                points[index].y - 0.5 * width * std::cos(heading), points[index].z};
             corridor.path.left_bound.push_back(localPose(left, heading, ego).position);
             corridor.path.right_bound.push_back(localPose(right, heading, ego).position);
         }
@@ -139,7 +204,7 @@ crp_msgs::msg::Scenario ScenarioPlayback::message(const VehicleState & ego, doub
         const bool visible = std::any_of(crossing.centerline.begin(), crossing.centerline.end(),
             [&](const auto & point)
             {
-                return std::hypot(point.x - ego.x, point.y - ego.y) <= m_settings.scenario_distance;
+                return std::hypot(point.x - ego.x, point.y - ego.y) <= scenario_distance;
             });
         if (!visible) {continue;}
         crp_msgs::msg::PedestrianCrossing message;
@@ -168,7 +233,7 @@ crp_msgs::msg::Scenario ScenarioPlayback::message(const VehicleState & ego, doub
         {
             object.object_id.uuid[byte] = static_cast<std::uint8_t>(identifier >> (8 * byte));
         }
-        object.existence_probability = static_cast<float>(actor.existence_probabilities[observation]);
+        object.existence_probability = 1.0F;
         autoware_perception_msgs::msg::ObjectClassification classification;
         classification.label = static_cast<std::uint8_t>(actor.classification);
         classification.probability = 1.0F;
@@ -179,7 +244,8 @@ crp_msgs::msg::Scenario ScenarioPlayback::message(const VehicleState & ego, doub
         object.shape.dimensions.y = actor.dimensions[1];
         object.shape.dimensions.z = actor.dimensions[2];
         object.kinematics.initial_pose_with_covariance.pose =
-            localPose(actor.positions[observation], actor.headings[observation], ego);
+            localPose(actor.positions[observation], actor.headings[observation], ego,
+                pathPitch(actor.positions, observation));
         object.kinematics.initial_twist_with_covariance.twist.linear.x = actor.speeds[observation];
         if (observation > 0)
         {
@@ -191,11 +257,11 @@ crp_msgs::msg::Scenario ScenarioPlayback::message(const VehicleState & ego, doub
         std::vector<MapPoint> main_points(actor.positions.begin() + observation, actor.positions.begin() + end);
         auto & predictions = object.kinematics.predicted_paths;
         predictions.push_back(predictedPath(main_points, actor.main_confidences[observation],
-            m_data.time_step, ego, actor.headings[observation]));
+            m_data.time_step, ego, actor.headings[observation], pathPitch(actor.positions, observation)));
         for (const auto & alternative : actor.alternatives[observation])
         {
             predictions.push_back(predictedPath(alternative.points, alternative.confidence,
-                m_data.time_step, ego, actor.headings[observation]));
+                m_data.time_step, ego, actor.headings[observation], pathPitch(actor.positions, observation)));
         }
         double confidence_sum = 0.0;
         for (const auto & prediction : predictions) {confidence_sum += prediction.confidence;}
@@ -213,6 +279,7 @@ crp_msgs::msg::Scenario ScenarioPlayback::message(const VehicleState & ego, doub
         if (actor.obstacle) {result.local_obstacles.objects.push_back(std::move(object));}
         else {result.local_moving_objects.objects.push_back(std::move(object));}
     }
+    if (m_settings.enable_occlusion) {applyOcclusion(result);}
     return result;
 }
 
