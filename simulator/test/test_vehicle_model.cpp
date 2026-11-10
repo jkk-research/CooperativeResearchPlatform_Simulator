@@ -39,6 +39,13 @@ int main(int argc, char ** argv)
         require(kinematic.state.lateral_speed == 0.0, "Legacy rear-axle kinematic reference");
         require(std::abs(kinematic.state.yaw_rate - 0.1 * std::tan(0.1) / 2.7) < 1e-12,
             "Legacy kinematic yaw rate");
+        crp::apl::VehicleModel path_follower;
+        path_follower.step(10.0, 0.0, 0.05);
+        require(path_follower.state.speed > 0.0 && path_follower.state.x > 0.0, "Longitudinal acceleration");
+        path_follower.step(0.0, 0.0, 1.0);
+        require(path_follower.state.speed == 0.0, "No reverse motion during braking");
+        require(path_follower.followPath({{0.0, 0.0}, {0.0, 10.0}}, 0) > 0.0, "Steering at standstill");
+        require(path_follower.followPath({}, 0) == 0.0, "Empty path handling");
         auto stationary = dynamicVehicle();
         for (int iteration = 0; iteration < 1000; ++iteration)
         {

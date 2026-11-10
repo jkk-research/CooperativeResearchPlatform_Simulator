@@ -1,4 +1,4 @@
-#include "simulator/scenario_data.hpp"
+#include "scenario_generation/scenario_data.hpp"
 
 #include <matio.h>
 

@@ -32,7 +32,7 @@ private:
     // t.header.stamp = msg->header.stamp;
     t.header.stamp = msg->header.stamp;
 
-    t.header.frame_id = "map";
+    t.header.frame_id = msg->header.frame_id;
     t.child_frame_id = "base_link";
 
     // ----------------------------

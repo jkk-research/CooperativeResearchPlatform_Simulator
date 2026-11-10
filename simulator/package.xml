@@ -12,15 +12,14 @@
   <depend>rclcpp</depend>
   <depend>ament_index_cpp</depend>
   <depend>crp_msgs</depend>
+  <depend>scenario_generation</depend>
   <depend>autoware_control_msgs</depend>
-  <depend>autoware_perception_msgs</depend>
   <depend>tier4_planning_msgs</depend>
+  <depend>autoware_perception_msgs</depend>
   <depend>geometry_msgs</depend>
   <depend>nav_msgs</depend>
   <depend>tf2_ros</depend>
   <depend>tf2</depend>
-  <depend>libmatio-dev</depend>
-  <depend>boost</depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
   <test_depend>rclpy</test_depend>

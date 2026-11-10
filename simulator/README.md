@@ -1,9 +1,15 @@
-# File-driven ROS 2 simulator
+# Ego motion simulator
 
-The simulator reads MATLAB scenarios directly with libmatio. Road geometry and
-object motion come from the file; ego receives longitudinal velocity or
-acceleration and lateral tire-angle commands on `/control/command/control_cmd`.
-The optional internal lateral controller follows the supplied target path.
+This repository contains two ROS packages. `simulator` owns ego motion, vehicle
+and powertrain models, and optional internal controllers. It publishes `/ego`
+in `map_local` without global UTM coordinates. `scenario_generation` owns MAT
+loading and playback; it subscribes to `/ego` and publishes `/scenario`,
+`/scenario_visualization`, and `/simulator/tracking_scenario`. Raw `/ego` and
+`/scenario` remain the planner-facing contracts.
+
+Ego receives longitudinal velocity or acceleration and lateral tire-angle
+commands on `/control/command/control_cmd`. The optional internal lateral
+controller follows the supplied target path.
 
 Longitudinal motion passes through a motor, torsional shaft and wheel model. The
 existing speed controller still produces its feedback-only acceleration request;
@@ -16,10 +22,19 @@ The controller acceleration request passes through a first-order low-pass filter
 with `acceleration_command_time_constant:=0.05` s by default. Set the time
 constant to zero to disable command filtering.
 The simulator publishes motor state and cumulative drawn/recovered electrical
-energy on `/simulator/powertrain_telemetry`. The visualizer adds these values to
-`/vehicleTelemetryVisualization` in joules. The default illustrative efficiency
-map is `config/motor_efficiency.csv`; replace it with measured motor data when
-available.
+energy on `/simulator/powertrain_telemetry`, grouped with ego state on
+`/ego_visualization`. The visualizer renders those values in joules. The default
+illustrative efficiency map is `config/motor_efficiency.csv`; replace it with
+measured motor data when available.
+
+The simulator additionally publishes `/simulator/actuator_state`
+(`crp_msgs/ActuatorState`): motor speed/torque, shaft twist, and filtered
+acceleration request. The longitudinal planner's optional `dynamic_actuators`
+mode uses this state to initialize the same actuator equations and predict net
+electrical horizon energy. Existing powertrain telemetry and recorded message
+layouts are unchanged. Rebuild `crp_msgs`, `simulator`, and
+`plan_predictive_cost_map`, and restart the simulator to enable this additional
+state topic.
 
 ## Build and run
 
@@ -27,13 +42,14 @@ Install the system dependency with `sudo apt install libmatio-dev`, or resolve t
 package dependencies through rosdep. From the ROS workspace, after sourcing ROS:
 
 ```bash
-colcon build --packages-select simulator
+colcon build --packages-select crp_msgs scenario_generation simulator
 source install/setup.bash
 ros2 launch simulator simulator.launch.py
 ```
 
-The three MAT files in the sibling `scenario_files` directory are copied into the
-installed package during the build. To select another scenario:
+The MAT files in the workspace `scenario_files` directory are installed by
+`scenario_generation`. The simulator launch starts both ego simulation and MAT
+scenario generation. To select another scenario:
 
 ```bash
 ros2 launch simulator simulator.launch.py \

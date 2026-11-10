@@ -10,9 +10,9 @@ from launch_ros.substitutions import FindPackageShare
 PARAMETERS = {
     'scenario_file': (
         PathJoinSubstitution([
-            FindPackageShare('simulator'), 'scenario_files',
-            'occluded_pedestrian_costmap_data.mat',
-        ]), str, 'MAT scenario file; qg coordinates are interpreted as map coordinates.'),
+            FindPackageShare('scenario_generation'), 'scenario_files',
+            'roundabout_with_conflicting_traffic_costmap_data.mat',
+        ]), str, 'MAT scenario file; qg coordinates are interpreted in map_local.'),
     'simulation_step': ('0.05', float, 'Ego integration step and publication period in simulation seconds.'),
     'simulation_time_stamps': ('false', bool, 'Stamp ego/scenario using elapsed simulation time; enabled by the split planner/tracker launch.'),
     'real_time_factor': ('1.0', float, 'Simulation seconds per wall-clock second.'),
@@ -37,9 +37,9 @@ PARAMETERS = {
     'virtual_vehicle_slow_speed': ('8.0', float, 'Second possible lane-following vehicle speed, m/s.'),
     'virtual_vehicle_fast_confidence': ('0.7', float, 'Conditional first vehicle branch probability.'),
     'maximum_virtual_objects': ('64', int, 'Maximum geometry-based hypotheses published in one scenario.'),
-    'initial_x': ('auto', float, 'Initial map x in meters, or auto for the first target waypoint.'),
-    'initial_y': ('auto', float, 'Initial map y in meters, or auto for the first target waypoint.'),
-    'initial_yaw': ('auto', float, 'Initial map yaw in radians, or auto for the target-path tangent.'),
+    'initial_x': ('auto', float, 'Initial map_local x in meters, or auto for the first target waypoint.'),
+    'initial_y': ('auto', float, 'Initial map_local y in meters, or auto for the first target waypoint.'),
+    'initial_yaw': ('auto', float, 'Initial map_local yaw in radians, or auto for the target-path tangent.'),
     'initial_displacement': ('0.0', float, 'Initial distance in meters along the ordered target path; explicit initial_x/y still override its position.'),
     'initial_speed': ('13.0', float, 'Initial ego forward speed in m/s; default 50 km/h.'),
     'initial_acceleration': ('0.0', float, 'Initial ego longitudinal acceleration in m/s^2.'),
@@ -90,18 +90,40 @@ PARAMETERS = {
     'minimum_lookahead': ('2.0', float, 'Minimum internal lateral-controller lookahead distance in meters.'),
 }
 
+SCENARIO_ONLY_PARAMETERS = {
+    'scenario_distance', 'scenario_lookahead_time', 'object_distance', 'lane_width',
+    'target_path_width', 'crossing_width', 'enable_occlusion', 'generate_virtual_objects',
+    'crossing_pedestrian_probability', 'roadside_pedestrian_probability',
+    'virtual_vehicle_probability', 'pedestrian_walking_speed', 'pedestrian_running_speed',
+    'pedestrian_walking_confidence', 'virtual_vehicle_fast_speed', 'virtual_vehicle_slow_speed',
+    'virtual_vehicle_fast_confidence', 'maximum_virtual_objects',
+}
+SHARED_PARAMETERS = {
+    'scenario_file', 'trim_zero_padding', 'prediction_horizon', 'initial_x', 'initial_y',
+    'initial_yaw', 'initial_displacement',
+}
+
 
 def launch_nodes(context):
-    parameters = {}
+    simulator_parameters = {}
+    scenario_parameters = {}
     for name, (_, value_type, _) in PARAMETERS.items():
         if name in ('initial_x', 'initial_y', 'initial_yaw'):
             if LaunchConfiguration(name).perform(context).strip().lower() == 'auto':
                 continue
-        parameters[name] = ParameterValue(LaunchConfiguration(name), value_type=value_type)
+        parameter = ParameterValue(LaunchConfiguration(name), value_type=value_type)
+        if name not in SCENARIO_ONLY_PARAMETERS:
+            simulator_parameters[name] = parameter
+        if name in SCENARIO_ONLY_PARAMETERS or name in SHARED_PARAMETERS:
+            scenario_parameters[name] = parameter
     return [
         Node(
             package='simulator', executable='simulator', name='simulator',
-            output='screen', parameters=[parameters],
+            output='screen', parameters=[simulator_parameters],
+        ),
+        Node(
+            package='scenario_generation', executable='scenario_generator', name='scenario_generator',
+            output='screen', parameters=[scenario_parameters],
         ),
         Node(
             package='simulator', executable='tf_broadcaster', name='tf_broadcaster',
@@ -116,6 +138,6 @@ def generate_launch_description():
         for name, (default, _, description) in PARAMETERS.items()
     ]
     arguments.append(DeclareLaunchArgument(
-        'publish_tf', default_value='true', description='Publish the map-to-base_link transform from ego.',
+        'publish_tf', default_value='true', description='Publish the ego transform using its header frame.',
     ))
     return LaunchDescription(arguments + [OpaqueFunction(function=launch_nodes)])

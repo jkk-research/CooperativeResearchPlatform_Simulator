@@ -7,7 +7,7 @@ import time
 
 import rclpy
 from autoware_control_msgs.msg import Control
-from crp_msgs.msg import Ego, PowertrainTelemetry, Scenario
+from crp_msgs.msg import Ego, PowertrainTelemetry, Scenario, ScenarioVisualization
 
 
 def run_model(executable, scenario_file, model, acceleration_mode=False):
@@ -101,19 +101,30 @@ def run_model(executable, scenario_file, model, acceleration_mode=False):
 def run_occlusion(executable, scenario_file):
     node = rclpy.create_node('occlusion_regression')
     scenarios = []
+    visualization_scenarios = []
     subscription = node.create_subscription(Scenario, '/scenario', scenarios.append, 10)
+    visualization_subscription = node.create_subscription(
+        ScenarioVisualization, '/scenario_visualization', visualization_scenarios.append, 10)
+    generator = subprocess.Popen([
+        'ros2', 'run', 'scenario_generation', 'scenario_generator', '--ros-args',
+        '-p', 'scenario_file:=' + scenario_file,
+    ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
     process = subprocess.Popen([
         executable, '--ros-args', '-p', 'scenario_file:=' + scenario_file,
         '-p', 'initial_x:=65.0', '-p', 'initial_y:=0.0', '-p', 'initial_yaw:=0.0',
-        '-p', 'use_scenario_speed_when_uncommanded:=false',
+        '-p', 'use_scenario_speed_when_uncommanded:=false', '-p', 'simulation_time_stamps:=true',
     ], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
     try:
         deadline = time.monotonic() + 15.0
-        while len(scenarios) < 5 and time.monotonic() < deadline:
-            if process.poll() is not None:
-                raise RuntimeError('Simulator exited during occlusion test')
+        while (len(scenarios) < 5 or len(visualization_scenarios) < 5) and time.monotonic() < deadline:
+            if process.poll() is not None or generator.poll() is not None:
+                raise RuntimeError('Scenario generation stack exited during occlusion test')
             rclpy.spin_once(node, timeout_sec=0.05)
         assert len(scenarios) >= 5, 'No live occlusion scenario stream'
+        assert len(visualization_scenarios) >= 5, 'No grouped scenario visualization stream'
+        assert all(message.header.frame_id == 'base_link' and
+            message.scenario.header.frame_id == message.header.frame_id
+            for message in visualization_scenarios)
         assert all(message.occluded_regions for message in scenarios), 'Obstacle shadows are published'
         crossing_pedestrians = 0
         for message in scenarios:
@@ -138,6 +149,8 @@ def run_occlusion(executable, scenario_file):
     finally:
         if process.poll() is None:
             os.killpg(process.pid, signal.SIGINT)
+        if generator.poll() is None:
+            os.killpg(generator.pid, signal.SIGINT)
         try:
             output = process.communicate(timeout=10)[0]
         except subprocess.TimeoutExpired:
@@ -145,7 +158,15 @@ def run_occlusion(executable, scenario_file):
             output = process.communicate()[0]
         if process.returncode not in (0, -signal.SIGINT):
             print(output)
+        try:
+            generator_output = generator.communicate(timeout=10)[0]
+        except subprocess.TimeoutExpired:
+            os.killpg(generator.pid, signal.SIGKILL)
+            generator_output = generator.communicate()[0]
+        if generator.returncode not in (0, -signal.SIGINT):
+            print(generator_output)
         node.destroy_subscription(subscription)
+        node.destroy_subscription(visualization_subscription)
         node.destroy_node()
 
 

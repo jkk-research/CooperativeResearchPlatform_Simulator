@@ -1,4 +1,4 @@
-#include "simulator/scenario_playback.hpp"
+#include "scenario_generation/scenario_playback.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -15,7 +15,7 @@ namespace apl
 namespace
 {
 
-geometry_msgs::msg::Pose localPose(const MapPoint & point, double heading, const VehicleState & ego,
+geometry_msgs::msg::Pose localPose(const MapPoint & point, double heading, const ScenarioEgoState & ego,
     double pitch = 0.0)
 {
     geometry_msgs::msg::Pose pose;
@@ -32,7 +32,7 @@ geometry_msgs::msg::Pose localPose(const MapPoint & point, double heading, const
     return pose;
 }
 
-std::size_t nearestPoint(const std::vector<MapPoint> & points, const VehicleState & ego)
+std::size_t nearestPoint(const std::vector<MapPoint> & points, const ScenarioEgoState & ego)
 {
     std::size_t nearest = 0;
     double minimum = std::numeric_limits<double>::infinity();
@@ -46,7 +46,7 @@ std::size_t nearestPoint(const std::vector<MapPoint> & points, const VehicleStat
 
 autoware_perception_msgs::msg::PredictedPath predictedPath(
     const std::vector<MapPoint> & points, double confidence, double time_step,
-    const VehicleState & ego, double fallback_heading, double fallback_pitch)
+    const ScenarioEgoState & ego, double fallback_heading, double fallback_pitch)
 {
     autoware_perception_msgs::msg::PredictedPath result;
     const auto nanoseconds = static_cast<std::int64_t>(std::llround(time_step * 1e9));
@@ -94,23 +94,23 @@ ScenarioPlayback::ScenarioPlayback(ScenarioData data, PlaybackSettings settings)
 
 const ScenarioData & ScenarioPlayback::data() const {return m_data;}
 
-std::size_t ScenarioPlayback::nearestTarget(const VehicleState & ego) const
+std::size_t ScenarioPlayback::nearestTarget(const ScenarioEgoState & ego) const
 {
     return nearestPoint(m_data.target_path, ego);
 }
 
-double ScenarioPlayback::speedLimit(const VehicleState & ego) const
+double ScenarioPlayback::speedLimit(const ScenarioEgoState & ego) const
 {
     return m_data.speed_limits[nearestTarget(ego)];
 }
 
-double ScenarioPlayback::scenarioDistance(const VehicleState & ego) const
+double ScenarioPlayback::scenarioDistance(const ScenarioEgoState & ego) const
 {
     return std::max(m_settings.scenario_distance,
         speedLimit(ego) * m_settings.scenario_lookahead_time);
 }
 
-RoadState ScenarioPlayback::roadState(const VehicleState & ego) const
+RoadState ScenarioPlayback::roadState(const ScenarioEgoState & ego) const
 {
     RoadState result;
     double minimum = std::numeric_limits<double>::infinity();
@@ -137,7 +137,7 @@ RoadState ScenarioPlayback::roadState(const VehicleState & ego) const
     return result;
 }
 
-crp_msgs::msg::Scenario ScenarioPlayback::message(const VehicleState & ego, double elapsed) const
+crp_msgs::msg::Scenario ScenarioPlayback::message(const ScenarioEgoState & ego, double elapsed) const
 {
     crp_msgs::msg::Scenario result;
     result.header.frame_id = "base_link";

@@ -1,8 +1,7 @@
 #ifndef SIMULATOR_SCENARIO_PLAYBACK_HPP
 #define SIMULATOR_SCENARIO_PLAYBACK_HPP
 
-#include "simulator/scenario_data.hpp"
-#include "simulator/vehicle_model.hpp"
+#include "scenario_generation/scenario_data.hpp"
 
 #include <crp_msgs/msg/scenario.hpp>
 
@@ -40,15 +39,24 @@ struct RoadState
     double pitch{0.0};
 };
 
+struct ScenarioEgoState
+{
+    double x{0.0};
+    double y{0.0};
+    double z{0.0};
+    double yaw{0.0};
+    double pitch{0.0};
+};
+
 class ScenarioPlayback
 {
 public:
     ScenarioPlayback(ScenarioData data, PlaybackSettings settings);
-    std::size_t nearestTarget(const VehicleState & ego) const;
-    double speedLimit(const VehicleState & ego) const;
-    double scenarioDistance(const VehicleState & ego) const;
-    RoadState roadState(const VehicleState & ego) const;
-    crp_msgs::msg::Scenario message(const VehicleState & ego, double elapsed) const;
+    std::size_t nearestTarget(const ScenarioEgoState & ego) const;
+    double speedLimit(const ScenarioEgoState & ego) const;
+    double scenarioDistance(const ScenarioEgoState & ego) const;
+    RoadState roadState(const ScenarioEgoState & ego) const;
+    crp_msgs::msg::Scenario message(const ScenarioEgoState & ego, double elapsed) const;
     const ScenarioData & data() const;
 
 private:

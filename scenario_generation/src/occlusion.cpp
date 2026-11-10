@@ -1,4 +1,4 @@
-#include "simulator/scenario_playback.hpp"
+#include "scenario_generation/scenario_playback.hpp"
 
 #include <boost/geometry.hpp>
 #include <algorithm>

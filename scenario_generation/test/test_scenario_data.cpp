@@ -1,6 +1,5 @@
-#include "simulator/scenario_data.hpp"
-#include "simulator/scenario_playback.hpp"
-#include "simulator/vehicle_model.hpp"
+#include "scenario_generation/scenario_data.hpp"
+#include "scenario_generation/scenario_playback.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -39,11 +38,11 @@ void testOcclusion()
     crp::apl::PlaybackSettings settings;
     settings.generate_virtual_objects = false;
     const crp::apl::ScenarioPlayback visibility(hidden_scene, settings);
-    const auto hidden_message = visibility.message(crp::apl::VehicleState(), 0.0);
+    const auto hidden_message = visibility.message(crp::apl::ScenarioEgoState(), 0.0);
     require(!hidden_message.occluded_regions.empty(), "Large obstacle casts an ego-view shadow");
     require(hidden_message.local_obstacles.objects.size() == 1, "Occluder does not hide itself");
     require(hidden_message.local_moving_objects.objects.empty(), "Hidden pedestrian is not published");
-    const auto emerged_message = visibility.message(crp::apl::VehicleState(), hidden_scene.time_step);
+    const auto emerged_message = visibility.message(crp::apl::ScenarioEgoState(), hidden_scene.time_step);
     require(emerged_message.local_moving_objects.objects.size() == 1, "Pedestrian is detected outside shadow");
     require(emerged_message.local_moving_objects.objects.front().existence_probability == 1.0F,
         "Emerged pedestrian existence is 100 percent");
@@ -53,7 +52,7 @@ void testOcclusion()
         for (auto & point : actor.positions) {point.x = -point.x; point.y = -point.y;}
         for (auto & heading : actor.headings) {heading += std::acos(-1.0);}
     }
-    const auto rear_message = crp::apl::ScenarioPlayback(reversed, settings).message(crp::apl::VehicleState(), 0.0);
+    const auto rear_message = crp::apl::ScenarioPlayback(reversed, settings).message(crp::apl::ScenarioEgoState(), 0.0);
     require(rear_message.local_moving_objects.objects.empty(), "Rear-facing shadow handles angle wrap at pi");
     require(!rear_message.occluded_regions.empty(), "Rear occluder casts a shadow");
     for (const auto & region : rear_message.occluded_regions)
@@ -62,23 +61,23 @@ void testOcclusion()
     }
     auto rotated = hidden_scene;
     rotated.actors.front().headings = {0.7, 0.7, 0.7};
-    require(crp::apl::ScenarioPlayback(rotated, settings).message(crp::apl::VehicleState(), 0.0).
+    require(crp::apl::ScenarioPlayback(rotated, settings).message(crp::apl::ScenarioEgoState(), 0.0).
         local_moving_objects.objects.empty(), "Oriented footprint hides a pedestrian behind a rotated obstacle");
     auto overlapping = hidden_scene;
     auto hidden_blocker = blocker;
     hidden_blocker.positions = {{16.0, 0.0}, {16.0, 0.0}, {16.0, 0.0}};
     overlapping.actors.push_back(hidden_blocker);
-    const auto overlap_message = crp::apl::ScenarioPlayback(overlapping, settings).message(crp::apl::VehicleState(), 0.0);
+    const auto overlap_message = crp::apl::ScenarioPlayback(overlapping, settings).message(crp::apl::ScenarioEgoState(), 0.0);
     require(overlap_message.local_obstacles.objects.size() == 1, "Occluded obstacle is filtered as well as moving actors");
     require(overlap_message.occluded_regions.size() == hidden_message.occluded_regions.size(),
         "Hidden occluders do not leak additional shadow geometry");
-    auto inside_ego = crp::apl::VehicleState();
+    auto inside_ego = crp::apl::ScenarioEgoState();
     inside_ego.x = 10.0;
     require(visibility.message(inside_ego, 0.0).occluded_regions.empty(),
         "Ego inside a footprint does not create singular shadow rays");
     settings.enable_occlusion = false;
     require(crp::apl::ScenarioPlayback(hidden_scene, settings).message(
-        crp::apl::VehicleState(), 0.0).local_moving_objects.objects.size() == 1, "Occlusion can be disabled");
+        crp::apl::ScenarioEgoState(), 0.0).local_moving_objects.objects.size() == 1, "Occlusion can be disabled");
     settings.enable_occlusion = true;
     settings.generate_virtual_objects = true;
     hidden_scene.lanes = {{{30.0, -2.0}, {15.0, -2.0}, {0.0, -5.0}}};
@@ -86,7 +85,7 @@ void testOcclusion()
     crossing.centerline = {{20.0, -6.0}, {20.0, 6.0}};
     crossing.width = 3.0;
     hidden_scene.pedestrian_crossings = {crossing};
-    const auto virtual_scene = crp::apl::ScenarioPlayback(hidden_scene, settings).message(crp::apl::VehicleState(), 0.0);
+    const auto virtual_scene = crp::apl::ScenarioPlayback(hidden_scene, settings).message(crp::apl::ScenarioEgoState(), 0.0);
     require(!virtual_scene.virtual_object_ids.empty(), "Occluded geometry generates hypothetical actors");
     bool has_crossing_pedestrian = false;
     bool has_lane_vehicle = false;
@@ -119,11 +118,11 @@ void testOcclusion()
     require(has_lane_vehicle, "Hidden lane creates a possible vehicle");
     hidden_scene.actors.pop_back();
     const auto without_hidden_actor = crp::apl::ScenarioPlayback(hidden_scene, settings).message(
-        crp::apl::VehicleState(), 0.0);
+        crp::apl::ScenarioEgoState(), 0.0);
     require(without_hidden_actor.virtual_object_ids == virtual_scene.virtual_object_ids,
         "Hypotheses do not depend on hidden ground truth");
     hidden_scene.pedestrian_crossings.clear();
-    const auto roadside_scene = crp::apl::ScenarioPlayback(hidden_scene, settings).message(crp::apl::VehicleState(), 0.0);
+    const auto roadside_scene = crp::apl::ScenarioPlayback(hidden_scene, settings).message(crp::apl::ScenarioEgoState(), 0.0);
     bool has_roadside_pedestrian = false;
     for (const auto & object : roadside_scene.local_moving_objects.objects)
     {
@@ -135,12 +134,12 @@ void testOcclusion()
     }
     require(has_roadside_pedestrian, "Occluded roadside generates a low-probability pedestrian");
     settings.maximum_virtual_objects = 1;
-    require(crp::apl::ScenarioPlayback(hidden_scene, settings).message(crp::apl::VehicleState(), 0.0).
+    require(crp::apl::ScenarioPlayback(hidden_scene, settings).message(crp::apl::ScenarioEgoState(), 0.0).
         virtual_object_ids.size() == 1, "Virtual hypothesis count is bounded");
     settings.crossing_pedestrian_probability = 0.0;
     settings.roadside_pedestrian_probability = 0.0;
     settings.virtual_vehicle_probability = 0.0;
-    require(crp::apl::ScenarioPlayback(hidden_scene, settings).message(crp::apl::VehicleState(), 0.0).
+    require(crp::apl::ScenarioPlayback(hidden_scene, settings).message(crp::apl::ScenarioEgoState(), 0.0).
         virtual_object_ids.empty(), "Zero priors suppress hypothetical actors");
     settings.virtual_vehicle_probability = 1.1;
     bool rejected_probability = false;
@@ -164,7 +163,7 @@ void testScenarioRange()
     settings.scenario_lookahead_time = 6.0;
     settings.enable_occlusion = false;
     crp::apl::ScenarioPlayback ranged(data, settings);
-    crp::apl::VehicleState ego;
+    crp::apl::ScenarioEgoState ego;
     require(std::abs(ranged.scenarioDistance(ego) - 130.0 / 3.6 * 6.0) < 1e-10,
         "Scenario range follows MAT target speed, not current standstill speed");
     require(ranged.message(ego, 0.0).paths.front().path.points.back().point.pose.position.x >= 200.0,
@@ -265,7 +264,7 @@ int main(int argc, char ** argv)
         ramp_crossing.centerline = {{5.0, -2.0, 10.5}, {5.0, 2.0, 10.5}};
         ramp.pedestrian_crossings.push_back(ramp_crossing);
         crp::apl::ScenarioPlayback ramp_playback(ramp, crp::apl::PlaybackSettings());
-        crp::apl::VehicleState ramp_ego;
+        crp::apl::ScenarioEgoState ramp_ego;
         ramp_ego.x = 5.0;
         const auto road = ramp_playback.roadState(ramp_ego);
         require(std::abs(road.elevation - 10.5) < 1e-10, "Road height interpolated between waypoints");
@@ -297,7 +296,7 @@ int main(int argc, char ** argv)
         auto crossing_settings = crp::apl::PlaybackSettings();
         crossing_settings.scenario_distance = 200.0;
         crp::apl::ScenarioPlayback crossing_playback(pedestrian, crossing_settings);
-        crp::apl::VehicleState crossing_ego;
+        crp::apl::ScenarioEgoState crossing_ego;
         crossing_ego.x = 50.0;
         crossing_ego.y = 2.0;
         crossing_ego.yaw = std::atan2(1.0, 0.0);
@@ -342,7 +341,7 @@ int main(int argc, char ** argv)
         crp::apl::PlaybackSettings settings;
         settings.object_distance = 500.0;
         crp::apl::ScenarioPlayback playback(std::move(roundabout), settings);
-        crp::apl::VehicleState ego;
+        crp::apl::ScenarioEgoState ego;
         ego.x = 10.0;
         ego.y = 20.0;
         ego.yaw = std::atan2(1.0, 0.0);
@@ -390,13 +389,6 @@ int main(int argc, char ** argv)
         const auto & right = first.path.right_bound.front();
         require(std::abs(std::hypot(left.x - right.x, left.y - right.y) - settings.target_path_width) < 1e-6,
             "Rotated corridor boundary width");
-        crp::apl::VehicleModel vehicle;
-        vehicle.step(10.0, 0.0, 0.05);
-        require(vehicle.state.speed > 0.0 && vehicle.state.x > 0.0, "Longitudinal acceleration");
-        vehicle.step(0.0, 0.0, 1.0);
-        require(vehicle.state.speed == 0.0, "No reverse motion during braking");
-        require(vehicle.followPath({{0.0, 0.0}, {0.0, 10.0}}, 0) > 0.0, "Steering at standstill");
-        require(vehicle.followPath({}, 0) == 0.0, "Empty path handling");
         testOcclusion();
         std::cout << "All three MAT scenarios passed loader checks\n";
     }

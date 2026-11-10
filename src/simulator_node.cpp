@@ -4,8 +4,10 @@
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <autoware_control_msgs/msg/control.hpp>
 #include <crp_msgs/msg/ego.hpp>
+#include <crp_msgs/msg/ego_visualization.hpp>
 #include <crp_msgs/msg/powertrain_telemetry.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <crp_msgs/msg/scenario_visualization.hpp>
 #include <tf2/LinearMath/Quaternion.h>
 
 #include <algorithm>
@@ -172,8 +174,11 @@ public:
         if (state.speed < 0.0) {throw std::runtime_error("initial_speed cannot be negative");}
         m_powertrain->initialize(state.speed);
         m_pub_scenario = create_publisher<crp_msgs::msg::Scenario>("scenario", 10);
+        m_pub_scenario_visualization = create_publisher<crp_msgs::msg::ScenarioVisualization>(
+            "/scenario_visualization", 10);
         m_pub_tracking_scenario = create_publisher<crp_msgs::msg::Scenario>("/simulator/tracking_scenario", 1);
         m_pub_ego = create_publisher<crp_msgs::msg::Ego>("ego", 10);
+        m_pub_ego_visualization = create_publisher<crp_msgs::msg::EgoVisualization>("/ego_visualization", 10);
         m_pub_powertrain = create_publisher<crp_msgs::msg::PowertrainTelemetry>(
             "/simulator/powertrain_telemetry", 10);
         m_subscription = create_subscription<autoware_control_msgs::msg::Control>(
@@ -277,7 +282,7 @@ private:
         m_pub_tracking_scenario->publish(tracking_scenario);
         crp_msgs::msg::Ego ego;
         ego.header.stamp = stamp;
-        ego.header.frame_id = "map";
+        ego.header.frame_id = "map_local";
         ego.pose.pose.position.x = m_vehicle.state.x;
         ego.pose.pose.position.y = m_vehicle.state.y;
         ego.pose.pose.position.z = m_vehicle.state.z;
@@ -304,7 +309,16 @@ private:
         powertrain.energy_consumed_j = m_powertrain->state.energy_consumed;
         powertrain.energy_regenerated_j = m_powertrain->state.energy_regenerated;
         m_pub_powertrain->publish(powertrain);
+        crp_msgs::msg::EgoVisualization ego_visualization;
+        ego_visualization.header = ego.header;
+        ego_visualization.ego = ego;
+        ego_visualization.powertrain_telemetry = powertrain;
+        m_pub_ego_visualization->publish(ego_visualization);
         m_pub_scenario->publish(scenario);
+        crp_msgs::msg::ScenarioVisualization scenario_visualization;
+        scenario_visualization.header = scenario.header;
+        scenario_visualization.scenario = scenario;
+        m_pub_scenario_visualization->publish(scenario_visualization);
         if (m_stop_at_end && m_elapsed >= m_playback->data().duration() - 1e-9)
         {
             m_timer->cancel();
@@ -348,8 +362,10 @@ private:
     std::unique_ptr<PowertrainModel> m_powertrain;
     std::unique_ptr<ScenarioPlayback> m_playback;
     rclcpp::Publisher<crp_msgs::msg::Scenario>::SharedPtr m_pub_scenario;
+    rclcpp::Publisher<crp_msgs::msg::ScenarioVisualization>::SharedPtr m_pub_scenario_visualization;
     rclcpp::Publisher<crp_msgs::msg::Scenario>::SharedPtr m_pub_tracking_scenario;
     rclcpp::Publisher<crp_msgs::msg::Ego>::SharedPtr m_pub_ego;
+    rclcpp::Publisher<crp_msgs::msg::EgoVisualization>::SharedPtr m_pub_ego_visualization;
     rclcpp::Publisher<crp_msgs::msg::PowertrainTelemetry>::SharedPtr m_pub_powertrain;
     rclcpp::Subscription<autoware_control_msgs::msg::Control>::SharedPtr m_subscription;
     rclcpp::TimerBase::SharedPtr m_timer;

@@ -1,7 +1,7 @@
 #ifndef SIMULATOR_VEHICLE_MODEL_HPP
 #define SIMULATOR_VEHICLE_MODEL_HPP
 
-#include "simulator/scenario_data.hpp"
+#include "scenario_generation/scenario_data.hpp"
 
 namespace crp
 {
