@@ -62,6 +62,62 @@ void VehicleModel::validateSettings() const
     }
 }
 
+void SpeedController::reset()
+{
+    m_integral = 0.0;
+    m_previous_speed = 0.0;
+    m_filtered_derivative = 0.0;
+    m_initialized = false;
+}
+
+double SpeedController::accelerationTarget(const VehicleModel & vehicle, double speed_target,
+    double time_step, double road_pitch)
+{
+    vehicle.validateSettings();
+    for (double value : {settings.integral_gain, settings.derivative_gain, settings.integral_limit,
+        settings.derivative_filter_time_constant, settings.road_gradient_feedforward_gain})
+    {
+        if (!std::isfinite(value) || value < 0.0)
+        {
+            throw std::invalid_argument("Speed-controller settings must be finite and nonnegative");
+        }
+    }
+    if (!std::isfinite(speed_target) || !std::isfinite(vehicle.state.speed) ||
+        !std::isfinite(time_step) || time_step <= 0.0 || !std::isfinite(road_pitch) ||
+        std::abs(road_pitch) >= 0.5 * std::acos(-1.0))
+    {
+        throw std::invalid_argument("Invalid speed-controller input");
+    }
+    if (speed_target <= 1e-6)
+    {
+        reset();
+        return -vehicle.settings.maximum_deceleration;
+    }
+    const double error = speed_target - vehicle.state.speed;
+    const double derivative = m_initialized ?
+        (vehicle.state.speed - m_previous_speed) / time_step : 0.0;
+    const double fraction = settings.derivative_filter_time_constant > 0.0 ?
+        -std::expm1(-time_step / settings.derivative_filter_time_constant) : 1.0;
+    m_filtered_derivative += fraction * (derivative - m_filtered_derivative);
+    m_previous_speed = vehicle.state.speed;
+    m_initialized = true;
+    if (settings.integral_gain == 0.0) {m_integral = 0.0;}
+    const double integral = std::clamp(m_integral + settings.integral_gain * error * time_step,
+        -settings.integral_limit, settings.integral_limit);
+    const double feedback = vehicle.settings.speed_gain * error -
+        settings.derivative_gain * m_filtered_derivative;
+    const double feedforward = settings.road_gradient_feedforward_gain * 9.81 * std::sin(road_pitch);
+    const double requested = feedback + integral + feedforward;
+    const double change = integral - m_integral;
+    if (!((requested > vehicle.settings.maximum_acceleration && change > 0.0) ||
+          (requested < -vehicle.settings.maximum_deceleration && change < 0.0)))
+    {
+        m_integral = integral;
+    }
+    return std::clamp(feedback + m_integral + feedforward,
+        -vehicle.settings.maximum_deceleration, vehicle.settings.maximum_acceleration);
+}
+
 double VehicleModel::accelerationTarget(double speed_target) const
 {
     validateSettings();

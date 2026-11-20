@@ -12,6 +12,60 @@ void require(bool condition, const std::string & message)
     if (!condition) {throw std::runtime_error(message);}
 }
 
+void testActorHeadings(const std::string & filename)
+{
+    const auto data = crp::apl::ScenarioData::load(filename, 4.0);
+    const auto pi = std::acos(-1.0);
+    require(data.actors.size() == 4, "Heading fixture actor count");
+    require(!data.actors[0].has_explicit_heading && !data.actors[3].has_explicit_heading,
+        "Missing and empty headings retain motion-based fallback");
+    require(data.actors[1].has_explicit_heading && data.actors[2].has_explicit_heading,
+        "Scalar and sampled headings are explicit");
+    for (std::size_t sample = 0; sample < data.time.size(); ++sample)
+    {
+        require(std::abs(data.actors[0].headings[sample]) < 1e-10, "Legacy moving heading");
+        require(std::abs(data.actors[1].headings[sample] - pi / 2.0) < 1e-10, "Scalar heading broadcast");
+        require(std::abs(data.actors[2].headings[sample] - sample * pi / 4.0) < 1e-10,
+            "Sampled heading retained");
+        require(std::abs(data.actors[3].headings[sample]) < 1e-10, "Legacy stationary heading");
+    }
+    auto settings = crp::apl::PlaybackSettings();
+    settings.enable_occlusion = false;
+    settings.generate_virtual_objects = false;
+    const crp::apl::ScenarioPlayback playback(data, settings);
+    const auto heading = [](const auto & quaternion)
+    {
+        return std::atan2(2.0 * (quaternion.w * quaternion.z + quaternion.x * quaternion.y),
+            1.0 - 2.0 * (quaternion.y * quaternion.y + quaternion.z * quaternion.z));
+    };
+    for (const double ego_yaw : {0.0, pi / 2.0})
+    {
+        auto ego = crp::apl::ScenarioEgoState();
+        ego.yaw = ego_yaw;
+        for (std::size_t sample = 0; sample < data.time.size(); ++sample)
+        {
+            const auto message = playback.message(ego, data.time[sample]);
+            require(message.local_obstacles.objects.size() == 3, "Heading fixture obstacles published");
+            const auto & scalar = message.local_obstacles.objects[0];
+            const auto & sampled = message.local_obstacles.objects[1];
+            require(std::abs(heading(scalar.kinematics.initial_pose_with_covariance.pose.orientation) -
+                (pi / 2.0 - ego_yaw)) < 1e-8, "Explicit pose heading transformed to ego frame");
+            require(std::abs(heading(sampled.kinematics.initial_pose_with_covariance.pose.orientation) -
+                (sample * pi / 4.0 - ego_yaw)) < 1e-8, "Time-indexed current heading");
+            const auto & scalar_path = scalar.kinematics.predicted_paths.front().path;
+            const auto & sampled_path = sampled.kinematics.predicted_paths.front().path;
+            for (std::size_t future = 0; future < scalar_path.size(); ++future)
+            {
+                require(std::abs(heading(scalar_path[future].orientation) - (pi / 2.0 - ego_yaw)) < 1e-8,
+                    "Stationary prediction retains explicit scalar heading");
+                require(std::abs(heading(sampled_path[future].orientation) -
+                    ((sample + future) * pi / 4.0 - ego_yaw)) < 1e-8,
+                    "Main prediction retains future sampled headings");
+            }
+        }
+    }
+}
+
 void testOcclusion()
 {
     crp::apl::ScenarioData hidden_scene;
@@ -226,6 +280,12 @@ int main(int argc, char ** argv)
             require(data.speed_limits.size() == data.target_path.size(),
                 "Trailing repeated speed values are trimmed to target-path length");
             std::cout << "Scenario load checks passed\n";
+            return 0;
+        }
+        if (argc == 3 && std::string(argv[1]) == "--headings")
+        {
+            testActorHeadings(argv[2]);
+            std::cout << "Actor heading checks passed\n";
             return 0;
         }
         require(argc == 2, "Pass the scenario_files directory");

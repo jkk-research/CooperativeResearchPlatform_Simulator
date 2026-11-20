@@ -3,12 +3,47 @@ import os
 import signal
 import subprocess
 import sys
+import tempfile
 import time
 
 import rclpy
 from crp_msgs.msg import Ego, Scenario, ScenarioVisualization
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from tf2_msgs.msg import TFMessage
+
+
+def test_heading_fixtures(binary):
+    from pathlib import Path
+    import numpy as np
+    from scipy.io import savemat
+
+    route = np.array([[0., 0., 0.], [50., 0., 0.]])
+    lanes = np.empty((1, 1), dtype=object)
+    lanes[0, 0] = route
+    data = {'time': np.array([0., 0.05, 0.1]), 'speedLimit': 8.0,
+            'targetPath_qg': route, 'drivableSurface_qg': route, 'lanes': lanes}
+    data['objects'] = {'position': {'x': np.array([5., 6., 7.]), 'y': np.zeros(3), 'z': np.zeros(3)},
+                       'velocity': 1.0, 'size': np.array([4.5, 1.8, 1.5])}
+    obstacles = np.empty((1, 3), dtype=[('position', object), ('size', object), ('heading', object)])
+    for index in range(3):
+        obstacles[0, index]['position'] = {'x': np.full(3, 10.0 + index * 10),
+                                          'y': np.full(3, 2.0 + index * 2), 'z': np.zeros(3)}
+        obstacles[0, index]['size'] = np.array([10., 2., 1.5])
+    obstacles[0, 0]['heading'] = np.pi / 2
+    obstacles[0, 2]['heading'] = np.empty(0)
+    data['obstacles'] = obstacles
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / 'heading_fixture.mat'
+        for shape in ((1, 3), (3, 1)):
+            obstacles[0, 1]['heading'] = np.array([0., np.pi / 4, np.pi / 2]).reshape(shape)
+            savemat(path, data)
+            subprocess.run([binary, '--headings', str(path)], check=True)
+        for invalid in (np.array([0., 1.]), np.ones((2, 2)), np.nan, np.inf, 'invalid'):
+            obstacles[0, 1]['heading'] = invalid
+            savemat(path, data)
+            result = subprocess.run([binary, '--load', str(path)], capture_output=True, text=True)
+            assert result.returncode != 0, f'Invalid heading accepted: {invalid}'
+    print('Scalar/vector headings, legacy fallback, ego transforms, predictions and malformed inputs passed')
 
 
 def main():
@@ -85,4 +120,7 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) == 3 and sys.argv[1] == '--headings':
+        test_heading_fixtures(sys.argv[2])
+    else:
+        main()

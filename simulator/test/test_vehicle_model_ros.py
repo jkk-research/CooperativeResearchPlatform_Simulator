@@ -10,7 +10,7 @@ from autoware_control_msgs.msg import Control
 from crp_msgs.msg import Ego, PowertrainTelemetry, Scenario, ScenarioVisualization
 
 
-def run_model(executable, scenario_file, model, acceleration_mode=False):
+def run_model(executable, scenario_file, model, acceleration_mode=False, pid=False):
     node = rclpy.create_node('vehicle_model_regression_' + model)
     states = []
     powertrain_states = []
@@ -21,7 +21,10 @@ def run_model(executable, scenario_file, model, acceleration_mode=False):
     process = subprocess.Popen([
         executable, '--ros-args', '-p', 'scenario_file:=' + scenario_file,
         '-p', 'vehicle_model:=' + model, '-p', 'use_internal_controller:=false',
-        '-p', 'use_road_gradient:=false', '-p', 'road_pitch:=0.0',
+        '-p', 'use_road_gradient:=false', '-p', 'road_pitch:=' + ('0.05' if pid else '0.0'),
+        '-p', 'speed_integral_gain:=' + ('0.5' if pid else '0.0'),
+        '-p', 'speed_derivative_gain:=' + ('0.1' if pid else '0.0'),
+        '-p', 'road_gradient_feedforward_gain:=' + ('1.0' if pid else '0.0'),
         '-p', 'initial_speed:=0.0',
         '-p', 'use_scenario_speed_when_uncommanded:=false', '-p', 'command_timeout:=0.25',
         '-p', 'command_mode:=' + ('acceleration' if acceleration_mode else 'speed'),
@@ -60,7 +63,7 @@ def run_model(executable, scenario_file, model, acceleration_mode=False):
         assert max(torque_steps, default=0.0) < 120.0, model + ': motor torque changed too sharply'
         if not acceleration_mode:
             peak_speed = max(state.twist.twist.linear.x for state in states)
-            assert peak_speed < 3.01, 'Speed feedback does not overshoot the flat-road target'
+            assert peak_speed < (3.5 if pid else 3.01), 'Bounded speed-controller overshoot'
         assert any(abs(state.twist.twist.angular.z) > 0.01 for state in states)
         assert any(abs(state.accel.accel.linear.y) > 0.01 for state in states)
         assert any(abs(state.accel.accel.angular.z) > 0.01 for state in states)
@@ -213,6 +216,7 @@ def main():
         for model in ('kinematic', 'dynamic'):
             run_model(sys.argv[1], sys.argv[2], model)
         run_model(sys.argv[1], sys.argv[2], 'dynamic', acceleration_mode=True)
+        run_model(sys.argv[1], sys.argv[2], 'dynamic', pid=True)
         run_initial_speed_hold(sys.argv[1], sys.argv[2])
         invalid = subprocess.run([
             sys.argv[1], '--ros-args', '-p', 'scenario_file:=' + sys.argv[2],

@@ -10,8 +10,8 @@ from launch_ros.substitutions import FindPackageShare
 PARAMETERS = {
     'scenario_file': (
         PathJoinSubstitution([
-            FindPackageShare('scenario_generation'), 'scenario_files',
-            'roundabout_with_conflicting_traffic_costmap_data.mat',
+            FindPackageShare('scenario_generation'), 'scenario_files',   
+            'measurement_jedklik_hid_loop_lexus3_2026-11-17_13-45_0_dense_costmap_data.mat',
         ]), str, 'MAT scenario file; qg coordinates are interpreted in map_local.'),
     'simulation_step': ('0.05', float, 'Ego integration step and publication period in simulation seconds.'),
     'simulation_time_stamps': ('false', bool, 'Stamp ego/scenario using elapsed simulation time; enabled by the split planner/tracker launch.'),
@@ -41,11 +41,11 @@ PARAMETERS = {
     'initial_y': ('auto', float, 'Initial map_local y in meters, or auto for the first target waypoint.'),
     'initial_yaw': ('auto', float, 'Initial map_local yaw in radians, or auto for the target-path tangent.'),
     'initial_displacement': ('0.0', float, 'Initial distance in meters along the ordered target path; explicit initial_x/y still override its position.'),
-    'initial_speed': ('13.0', float, 'Initial ego forward speed in m/s; default 50 km/h.'),
+    'initial_speed': ('10.0', float, 'Initial ego forward speed in m/s; default 50 km/h.'),
     'initial_acceleration': ('0.0', float, 'Initial ego longitudinal acceleration in m/s^2.'),
     'initial_lateral_speed': ('0.0', float, 'Initial body lateral velocity in m/s, dynamic model only.'),
     'initial_yaw_rate': ('0.0', float, 'Initial yaw rate in rad/s, dynamic model only.'),
-    'use_internal_controller': ('true', bool, 'Follow targetPath_qg internally; otherwise use commanded steering.'),
+    'use_internal_controller': ('false', bool, 'Follow targetPath_qg internally; otherwise use commanded steering.'),
     'use_scenario_speed_when_uncommanded': ('true', bool, 'Use speedLimit until the first external control command.'),
     'command_timeout': ('1.0', float, 'Wall-clock timeout after a command, then target zero speed.'),
     'command_mode': ('speed', str, 'Control.longitudinal input: speed or requested acceleration; stale commands brake.'),
@@ -85,7 +85,12 @@ PARAMETERS = {
     'maximum_acceleration': ('9.81', float, 'Requested propulsion acceleration limit in m/s^2, before dynamic loads.'),
     'maximum_deceleration': ('9.81', float, 'Requested braking acceleration magnitude in m/s^2, before dynamic loads.'),
     'maximum_steering': ('0.6', float, 'Absolute front tire steering limit in radians; less than pi/2.'),
-    'speed_gain': ('6.0', float, 'Proportional speed-controller gain in 1/s.'),
+    'speed_gain': ('10.0', float, 'Proportional speed-controller gain in 1/s.'),
+    'speed_integral_gain': ('0.5', float, 'Integral speed-controller gain in 1/s^2; zero disables integral control.'),
+    'speed_derivative_gain': ('0.1', float, 'Dimensionless gain on negative filtered measured acceleration; zero disables derivative control.'),
+    'speed_integral_limit': ('3.0', float, 'Absolute integral acceleration contribution limit in m/s^2; conditional anti-windup at request saturation.'),
+    'speed_derivative_filter_time_constant': ('0.05', float, 'Measured-speed derivative low-pass time constant in seconds; zero disables filtering.'),
+    'road_gradient_feedforward_gain': ('1.0', float, 'Gain on g*sin(road_pitch) in speed mode; 1 enables full grade compensation, 0 disables it.'),
     'lookahead_time': ('1.5', float, 'Internal lateral-controller lookahead time in seconds.'),
     'minimum_lookahead': ('2.0', float, 'Minimum internal lateral-controller lookahead distance in meters.'),
 }

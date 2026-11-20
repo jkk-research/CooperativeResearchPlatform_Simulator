@@ -163,9 +163,20 @@ void loadActors(mat_t * file, const char * name, unsigned int classification,
         {
             actor.positions.pop_back();
         }
+        auto heading = field(variable.get(), "heading", actor_index);
+        const auto heading_count = count(heading);
+        if (heading_count > 0 && (heading->rank != 2 ||
+            (heading->dims[0] != 1 && heading->dims[1] != 1) ||
+            (heading_count != 1 && heading_count < length)))
+        {
+            throw std::runtime_error(std::string(name) + "(" + std::to_string(actor_index + 1) +
+                ").heading: expected a scalar or vector covering all position samples, in radians");
+        }
+        actor.has_explicit_heading = heading_count > 0;
         for (std::size_t index = 0; index < actor.positions.size(); ++index)
         {
-            actor.headings.push_back(pathHeading(actor.positions, index));
+            actor.headings.push_back(actor.has_explicit_heading ?
+                number(heading, heading_count == 1 ? 0 : index) : pathHeading(actor.positions, index));
         }
         actor.alternatives.resize(length);
         auto alternatives = field(variable.get(), "objectPossibleTrajectories", actor_index);

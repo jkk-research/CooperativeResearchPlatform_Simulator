@@ -136,6 +136,14 @@ public:
             throw std::runtime_error("maximum_steering must be less than pi/2");
         }
         settings.speed_gain = positive("speed_gain", settings.speed_gain);
+        auto & speed_settings = m_speed_controller.settings;
+        speed_settings.integral_gain = nonnegative("speed_integral_gain", speed_settings.integral_gain);
+        speed_settings.derivative_gain = nonnegative("speed_derivative_gain", speed_settings.derivative_gain);
+        speed_settings.integral_limit = nonnegative("speed_integral_limit", speed_settings.integral_limit);
+        speed_settings.derivative_filter_time_constant = nonnegative(
+            "speed_derivative_filter_time_constant", speed_settings.derivative_filter_time_constant);
+        speed_settings.road_gradient_feedforward_gain = nonnegative(
+            "road_gradient_feedforward_gain", speed_settings.road_gradient_feedforward_gain);
         settings.lookahead_time = positive("lookahead_time", settings.lookahead_time);
         settings.minimum_lookahead = positive("minimum_lookahead", settings.minimum_lookahead);
         m_acceleration_filter_time_constant = nonnegative(
@@ -219,8 +227,7 @@ private:
                 }
                 else
                 {
-                    integratePowertrain(m_vehicle.accelerationTarget(target_speed),
-                        steering, step, grade, target_speed);
+                    integratePowertrain(0.0, steering, step, grade, target_speed);
                 }
                 const auto road = m_playback->roadState(playbackState(m_vehicle.state));
                 m_vehicle.state.z = road.elevation;
@@ -296,7 +303,7 @@ private:
         for (std::size_t iteration = 0; iteration < count; ++iteration)
         {
             const double requested = m_acceleration_commands ? acceleration_target :
-                m_vehicle.accelerationTarget(target_speed);
+                m_speed_controller.accelerationTarget(m_vehicle, target_speed, step, grade);
             const double filter_fraction = m_acceleration_filter_time_constant > 0.0 ?
                 -std::expm1(-step / m_acceleration_filter_time_constant) : 1.0;
             m_filtered_acceleration += filter_fraction * (requested - m_filtered_acceleration);
@@ -312,6 +319,7 @@ private:
     }
 
     VehicleModel m_vehicle;
+    SpeedController m_speed_controller;
     std::unique_ptr<PowertrainModel> m_powertrain;
     std::unique_ptr<ScenarioPlayback> m_playback;
     rclcpp::Publisher<crp_msgs::msg::Ego>::SharedPtr m_pub_ego;

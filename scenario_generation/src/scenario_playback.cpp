@@ -46,7 +46,8 @@ std::size_t nearestPoint(const std::vector<MapPoint> & points, const ScenarioEgo
 
 autoware_perception_msgs::msg::PredictedPath predictedPath(
     const std::vector<MapPoint> & points, double confidence, double time_step,
-    const ScenarioEgoState & ego, double fallback_heading, double fallback_pitch)
+    const ScenarioEgoState & ego, double fallback_heading, double fallback_pitch,
+    const std::vector<double> * headings = nullptr, std::size_t heading_offset = 0)
 {
     autoware_perception_msgs::msg::PredictedPath result;
     const auto nanoseconds = static_cast<std::int64_t>(std::llround(time_step * 1e9));
@@ -56,7 +57,8 @@ autoware_perception_msgs::msg::PredictedPath predictedPath(
     for (std::size_t index = 0; index < points.size(); ++index)
     {
         result.path.push_back(localPose(points[index],
-            points.size() > 1 ? pathHeading(points, index) : fallback_heading, ego,
+            headings ? (*headings)[heading_offset + index] :
+                (points.size() > 1 ? pathHeading(points, index) : fallback_heading), ego,
             points.size() > 1 ? pathPitch(points, index) : fallback_pitch));
     }
     return result;
@@ -257,7 +259,8 @@ crp_msgs::msg::Scenario ScenarioPlayback::message(const ScenarioEgoState & ego, 
         std::vector<MapPoint> main_points(actor.positions.begin() + observation, actor.positions.begin() + end);
         auto & predictions = object.kinematics.predicted_paths;
         predictions.push_back(predictedPath(main_points, actor.main_confidences[observation],
-            m_data.time_step, ego, actor.headings[observation], pathPitch(actor.positions, observation)));
+            m_data.time_step, ego, actor.headings[observation], pathPitch(actor.positions, observation),
+            actor.has_explicit_heading ? &actor.headings : nullptr, observation));
         for (const auto & alternative : actor.alternatives[observation])
         {
             predictions.push_back(predictedPath(alternative.points, alternative.confidence,

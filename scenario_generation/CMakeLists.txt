@@ -63,6 +63,9 @@ if(BUILD_TESTING)
     tier4_planning_msgs geometry_msgs tf2)
   add_test(NAME occlusion COMMAND test_scenario_data --occlusion)
   add_test(NAME scenario_range COMMAND test_scenario_data --range)
+  add_test(NAME scenario_headings COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/test/test_scenario_generator_ros.py
+    --headings $<TARGET_FILE:test_scenario_data>)
   set(SCENARIO_TEST_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../scenario_files"
     CACHE PATH "Directory containing the example MAT scenarios")
   if(EXISTS "${SCENARIO_TEST_DIR}/urban_right_turn_pedestrian_near_road_costmap_data.mat")

@@ -71,6 +71,30 @@ public:
     VehicleSettings settings;
 };
 
+struct SpeedControllerSettings
+{
+    double integral_gain{0.0};
+    double derivative_gain{0.0};
+    double integral_limit{3.0};
+    double derivative_filter_time_constant{0.05};
+    double road_gradient_feedforward_gain{0.0};
+};
+
+class SpeedController
+{
+public:
+    double accelerationTarget(const VehicleModel & vehicle, double speed_target,
+        double time_step, double road_pitch);
+    void reset();
+    SpeedControllerSettings settings;
+
+private:
+    double m_integral{0.0};
+    double m_previous_speed{0.0};
+    double m_filtered_derivative{0.0};
+    bool m_initialized{false};
+};
+
 }
 }
 

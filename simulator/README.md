@@ -12,7 +12,7 @@ commands on `/control/command/control_cmd`. The optional internal lateral
 controller follows the supplied target path.
 
 Longitudinal motion passes through a motor, torsional shaft and wheel model. The
-existing speed controller still produces its feedback-only acceleration request;
+speed controller produces a PID acceleration request with optional grade feedforward;
 motor torque and shaft force determine actual wheel force, while aerodynamic,
 rolling, viscous and grade loads remain in the vehicle plant. Regenerative braking
 is torque-limited and friction brakes supply any additional requested deceleration.
@@ -208,7 +208,7 @@ pose reference or turning trajectory; select one mode before starting a run.
 The ROS command interface is unchanged:
 
 ```text
-Control.longitudinal.velocity -> proportional speed controller
+Control.longitudinal.velocity -> PID speed controller + optional grade feedforward
                              -> requested acceleration [m/s^2]
                              -> selected vehicle model
 Control.lateral.steering_tire_angle -> steering input [rad]
@@ -219,10 +219,53 @@ Control.lateral.steering_tire_angle -> steering input [rad]
 requested acceleration represents propulsion force divided by vehicle mass,
 not guaranteed net acceleration after loads. Negative values request braking.
 Both are clamped by `maximum_acceleration` and `maximum_deceleration` before
-dynamic loads are applied. The proportional speed controller has no integral
-or load feed-forward, so resistance can leave a small steady-state speed error.
+dynamic loads are applied. The ROS simulator uses `SpeedController` at each
+powertrain substep. Its default gains retain the previous proportional-only
+behavior, so resistance can still leave a small steady-state speed error until
+integral control or grade feedforward is enabled. `VehicleModel::step` retains
+its original stateless proportional-only convenience behavior.
 The optional internal lateral controller still supplies steering, and external
 steering is used when `use_internal_controller=false`.
+
+### Speed PID and Grade Compensation
+
+The requested acceleration in speed-command mode is the bounded sum of
+`speed_gain * speed_error`, an integral contribution, negative filtered measured
+acceleration times `speed_derivative_gain`, and
+`road_gradient_feedforward_gain * 9.81 * sin(road_pitch)`. The grade uses the same
+MAT-derived pitch or configured constant load pitch as the vehicle physics.
+A feedforward gain of 1 compensates gravity only, not drag or rolling resistance.
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `speed_gain` | 6.0 | Proportional gain, 1/s |
+| `speed_integral_gain` | 0.0 | Integral gain, 1/s^2; zero disables |
+| `speed_derivative_gain` | 0.0 | Dimensionless measured-speed derivative gain; zero disables |
+| `speed_integral_limit` | 3.0 | Absolute integral contribution limit, m/s^2 |
+| `speed_derivative_filter_time_constant` | 0.05 | Derivative filter time constant, seconds; zero disables filtering |
+| `road_gradient_feedforward_gain` | 0.0 | Grade compensation multiplier; 0 disables, 1 fully compensates |
+
+All new settings must be finite and nonnegative. Integration uses simulation
+time and stops accumulating into acceleration-request saturation; the separate
+integral limit also bounds accumulation when the motor cannot deliver the
+requested force. Derivative feedback uses measured speed rather than target
+speed, avoiding derivative kicks at command steps. A zero-speed target,
+including a watchdog stop, resets controller memory and retains maximum-braking
+behavior. Acceleration-command mode bypasses the PID and grade feedforward.
+The existing acceleration-request filter and powertrain limits still apply.
+
+For example, the following enables all additions with illustrative, untuned gains:
+
+```bash
+ros2 launch simulator simulator.launch.py \
+  speed_integral_gain:=0.5 speed_derivative_gain:=0.1 \
+  road_gradient_feedforward_gain:=1.0
+```
+
+These are simulator options only. The PCM actuator prediction model still uses
+its existing proportional-only controller; enabling these additions introduces
+a model mismatch unless that planner model is updated separately. No PID tuning
+or planner closed-loop safety claim is implied.
 
 ### Dynamic model
 

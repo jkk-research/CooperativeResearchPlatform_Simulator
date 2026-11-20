@@ -28,11 +28,90 @@ crp::apl::VehicleModel dynamicVehicle()
     return result;
 }
 
+void testSpeedController()
+{
+    auto vehicle = dynamicVehicle();
+    vehicle.state.speed = 10.0;
+    crp::apl::SpeedController legacy;
+    for (double target : {0.0, 9.5, 10.0, 10.5, 30.0})
+    {
+        require(legacy.accelerationTarget(vehicle, target, 0.01, 0.1) == vehicle.accelerationTarget(target),
+            "Disabled PID additions preserve proportional controller exactly");
+    }
+    crp::apl::SpeedController integral;
+    integral.settings.integral_gain = 0.5;
+    integral.settings.integral_limit = 0.75;
+    require(std::abs(integral.accelerationTarget(vehicle, 11.0, 1.0, 0.0) - 6.5) < 1e-12,
+        "Integral accumulates speed error using simulation time");
+    require(std::abs(integral.accelerationTarget(vehicle, 11.0, 1.0, 0.0) - 6.75) < 1e-12,
+        "Integral contribution is bounded");
+    integral.reset();
+    for (int iteration = 0; iteration < 100; ++iteration)
+    {
+        integral.accelerationTarget(vehicle, 30.0, 0.01, 0.0);
+    }
+    require(integral.accelerationTarget(vehicle, 10.0, 0.01, 0.0) == 0.0,
+        "Output saturation prevents integral windup");
+    integral.accelerationTarget(vehicle, 11.0, 0.1, 0.0);
+    require(integral.accelerationTarget(vehicle, 0.0, 0.1, 0.0) == -vehicle.settings.maximum_deceleration,
+        "Stop command retains maximum braking");
+    require(integral.accelerationTarget(vehicle, 10.0, 0.1, 0.0) == 0.0,
+        "Stop command clears controller memory");
+    crp::apl::SpeedController derivative;
+    derivative.settings.derivative_gain = 2.0;
+    derivative.settings.derivative_filter_time_constant = 0.0;
+    require(derivative.accelerationTarget(vehicle, 10.0, 0.1, 0.0) == 0.0,
+        "Derivative initializes without a kick");
+    vehicle.state.speed = 10.1;
+    require(std::abs(derivative.accelerationTarget(vehicle, 10.0, 0.1, 0.0) + 2.6) < 1e-12,
+        "Derivative opposes increasing measured speed");
+    require(std::abs(derivative.accelerationTarget(vehicle, 11.0, 0.1, 0.0) - 5.4) < 1e-12,
+        "Target steps do not cause derivative kick");
+    crp::apl::SpeedController filtered;
+    filtered.settings.derivative_gain = 1.0;
+    filtered.settings.derivative_filter_time_constant = 0.1;
+    vehicle.state.speed = 10.0;
+    filtered.accelerationTarget(vehicle, 10.0, 0.1, 0.0);
+    vehicle.state.speed = 10.1;
+    require(std::abs(filtered.accelerationTarget(vehicle, 10.0, 0.1, 0.0) + 0.6 +
+        1.0 - std::exp(-1.0)) < 1e-12, "Measured derivative is low-pass filtered");
+    crp::apl::SpeedController grade;
+    grade.settings.road_gradient_feedforward_gain = 1.0;
+    for (double pitch : {-0.1, 0.0, 0.1})
+    {
+        require(std::abs(grade.accelerationTarget(vehicle, vehicle.state.speed, 0.01, pitch) -
+            9.81 * std::sin(pitch)) < 1e-12, "Grade feedforward sign and magnitude");
+        auto tracking = dynamicVehicle();
+        tracking.state.speed = 10.0;
+        crp::apl::SpeedController controller;
+        controller.settings.integral_gain = 2.0;
+        controller.settings.derivative_gain = 0.2;
+        controller.settings.road_gradient_feedforward_gain = 1.0;
+        for (int iteration = 0; iteration < 8000; ++iteration)
+        {
+            tracking.stepAcceleration(controller.accelerationTarget(tracking, 10.0, 0.005, pitch),
+                0.0, 0.005, pitch);
+        }
+        require(std::abs(tracking.state.speed - 10.0) < 1e-5,
+            "PID rejects residual road loads on uphill and downhill grades");
+        auto compensated = dynamicVehicle();
+        compensated.state.speed = 10.0;
+        compensated.settings.air_density = 0.0;
+        compensated.settings.rolling_resistance_coefficient = 0.0;
+        compensated.settings.viscous_resistance = 0.0;
+        compensated.stepAcceleration(grade.accelerationTarget(compensated, 10.0, 0.005, pitch),
+            0.0, 0.005, pitch);
+        require(std::abs(compensated.state.speed - 10.0) < 1e-12,
+            "Feedforward cancels physical gradient load without a speed error");
+    }
+}
+
 int main(int argc, char ** argv)
 {
     try
     {
     require(argc == 2, "Efficiency map path supplied to model test");
+        testSpeedController();
         crp::apl::VehicleModel kinematic;
         kinematic.stepAcceleration(2.0, 0.1, 0.05);
         require(std::abs(kinematic.state.speed - 0.1) < 1e-12, "Legacy kinematic acceleration");

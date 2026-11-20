@@ -42,6 +42,7 @@ struct ScenarioActor
     std::vector<MapPoint> positions;
     std::vector<double> speeds;
     std::vector<double> headings;
+    bool has_explicit_heading{false};
     std::vector<double> existence_probabilities;
     std::vector<double> main_confidences;
     std::vector<std::vector<TrajectorySample>> alternatives;
